@@ -170,9 +170,9 @@ img{max-width:100%}
 
 <div class="wrap gate" id="gLogin" hidden><div class="card">
   <p class="seal">Bomberos San Antonio<br><i>Registro de emergencias</i></p>
-  <p class="note">Ingrese con el correo y la contraseña que le asignó el administrador.</p>
+  <p class="note">Ingrese con su número de cédula (o su correo, si es administrador) y su contraseña.</p>
   <form id="loginForm" novalidate>
-    <label class="f"><span>Correo</span><input type="email" id="lEmail" autocomplete="username" required></label>
+    <label class="f"><span>Cédula o correo</span><input type="text" id="lEmail" autocomplete="username" autocapitalize="off" required></label>
     <label class="f"><span>Contraseña</span><input type="password" id="lPass" autocomplete="current-password" required></label>
     <div class="err" id="lErr"></div>
     <button class="btn primary" type="submit" id="lBtn">Ingresar</button>
@@ -189,6 +189,16 @@ img{max-width:100%}
     <button class="btn primary" id="bBtn">Configurar como primer administrador</button>
   </div>
   <button class="btn ghost" id="pLogout">Salir</button>
+</div></div>
+
+<div class="wrap gate" id="gClave" hidden><div class="card stack">
+  <p class="seal">Cree su <i>contraseña</i></p>
+  <p class="note" style="margin:0" id="cText">Es su primer ingreso. Para proteger su usuario, cambie la contraseña temporal por una que solo usted conozca. Mínimo 8 caracteres y distinta de su cédula.</p>
+  <label class="f"><span>Nueva contraseña</span><input type="password" id="cP1" autocomplete="new-password"></label>
+  <label class="f"><span>Repita la nueva contraseña</span><input type="password" id="cP2" autocomplete="new-password"></label>
+  <div class="err" id="cErr"></div>
+  <button class="btn primary" id="cBtn">Guardar contraseña y entrar</button>
+  <button class="btn ghost" id="cLogout">Salir</button>
 </div></div>
 
 <!-- ======== APLICACIÓN ======== -->
@@ -378,6 +388,10 @@ const AFECT=[["les","Lesionados"],["fal","Fallecidos"],["res","Rescatados"],["ev
 
 /* ---------- estado ---------- */
 let fb=null, auth=null, db=null, FV=null, secApp=null;
+const DOM_CED=(FIREBASE_CONFIG.authDomain||"bomberos.local");
+const soloDig=s=>String(s||"").replace(/[.\s,-]/g,"");
+const esCedula=s=>/^\d{5,12}$/.test(soloDig(s));
+const emailDe=s=>esCedula(s)?soloDig(s)+"@"+DOM_CED:String(s||"").trim().toLowerCase();
 let UID=null, MYDOC=null, ROLE="consulta";
 let EMERG=[], PERSONAL=[], AUD=[], USERS=[], CFG={general:{},tipos:{items:[]},vehiculos:{items:[]},sectores:{items:[]}};
 let TAB="lista", DETAIL=null, EDIT_ID=null, EDIT_BASE=null, EDIT_DOC=null, VROWS=[];
@@ -453,7 +467,7 @@ function modal({title,text,label,need,yes}){ return new Promise(res=>{
   $("mNo").onclick=()=>done(null);
   $("mYes").onclick=()=>{ const v=$("mInput").value.trim(); if(label&&need&&v.length<need){ $("mText").textContent=`Escriba al menos ${need} caracteres.`; return; } done(label?v:true); };
 });}
-function screen(id){ ["gCfg","gLogin","gPending","app"].forEach(s=>$(s).hidden=s!==id); }
+function screen(id){ ["gCfg","gLogin","gPending","gClave","app"].forEach(s=>$(s).hidden=s!==id); }
 function setTab(t){ TAB=t; document.querySelectorAll("#tabs button").forEach(b=>b.setAttribute("aria-selected",b.dataset.tab===t)); document.querySelectorAll("[data-panel]").forEach(p=>p.hidden=p.dataset.panel!==t); render(); window.scrollTo(0,0); }
 $("tabs").addEventListener("click",ev=>{ const b=ev.target.closest("button[data-tab]"); if(!b) return; if(b.dataset.tab==="form"&&TAB!=="form"&&!EDIT_ID) openForm(null); else setTab(b.dataset.tab); });
 function sync(state,msg){ const p=$("syncPill"); p.className="pill "+(state==="ok"?"sync-ok":state==="err"?"sync-err":"sync-wait"); p.textContent=msg; }
@@ -481,25 +495,40 @@ function boot(){
   auth.onAuthStateChanged(onUser);
 }
 $("loginForm").addEventListener("submit",async ev=>{ ev.preventDefault(); $("lErr").textContent=""; $("lBtn").disabled=true;
-  try{ await auth.signInWithEmailAndPassword($("lEmail").value.trim(),$("lPass").value); }catch(e){ $("lErr").textContent=errMsg(e); } finally{ $("lBtn").disabled=false; } });
-$("lReset").onclick=async()=>{ const em=$("lEmail").value.trim(); if(!em){ $("lErr").textContent="Escriba su correo y vuelva a tocar «¿Olvidó su contraseña?»."; return; }
+  try{ await auth.signInWithEmailAndPassword(emailDe($("lEmail").value),$("lPass").value); }catch(e){ $("lErr").textContent=errMsg(e); } finally{ $("lBtn").disabled=false; } });
+$("lReset").onclick=async()=>{ const em=$("lEmail").value.trim(); if(esCedula(em)){ $("lErr").textContent="Los usuarios que entran con cédula no tienen correo para recuperar la contraseña. Pídale al administrador que le restablezca el acceso."; return; } if(!em){ $("lErr").textContent="Escriba su correo y vuelva a tocar «¿Olvidó su contraseña?»."; return; }
   try{ await auth.sendPasswordResetEmail(em); $("lErr").textContent=""; toast("Si el correo está registrado, le llegará un enlace para crear una nueva contraseña. Revise también correo no deseado."); }catch(e){ $("lErr").textContent=errMsg(e); } };
-$("btnLogout").onclick=$("pLogout").onclick=()=>auth.signOut();
+$("btnLogout").onclick=$("pLogout").onclick=$("cLogout").onclick=()=>auth.signOut();
 
 async function onUser(user){
   UNSUB.forEach(f=>{ try{f();}catch(_){} }); UNSUB=[]; EMERG=[]; PERSONAL=[]; AUD=[]; USERS=[]; emLoaded=false; DETAIL=null; EDIT_ID=null;
   if(!user){ UID=null; MYDOC=null; $("userBox").hidden=true; $("rolePill").hidden=true; screen("gLogin"); sync("wait","Sin sesión"); return; }
-  UID=user.uid; $("userBox").hidden=false; $("userName").textContent=user.email; sync("wait","Conectando");
+  UID=user.uid; $("userBox").hidden=false; $("userName").textContent=(user.email||"").endsWith("@"+DOM_CED)?user.email.split("@")[0]:user.email; sync("wait","Conectando");
   const unsubMe=db.collection("usuarios").doc(UID).onSnapshot({includeMetadataChanges:true},async s=>{
     if(s.metadata.hasPendingWrites) return; // esperar a que el servidor confirme el usuario
     MYDOC=s.exists?s.data():null;
     if(!MYDOC){ await showPending(user); return; }
     if(MYDOC.activo!==true){ showMsg("Usuario desactivado","Su usuario fue desactivado. Comuníquese con el administrador del cuerpo de bomberos."); return; }
+    if(MYDOC.debeCambiarClave===true){ UNSUB.slice(1).forEach(f=>{ try{f();}catch(_){} }); UNSUB=UNSUB.slice(0,1); screen("gClave"); $("cErr").textContent=""; sync("wait","Cambio de contraseña"); return; }
     const changed=ROLE!==MYDOC.rol; ROLE=MYDOC.rol; $("userName").textContent=MYDOC.nombre||user.email;
     if($("app").hidden){ screen("app"); startData(); setTab("lista"); } else if(changed){ startData(); render(); }
   }, e=>{ showMsg("Sin acceso",errMsg(e)); });
   UNSUB.push(unsubMe);
 }
+$("cBtn").onclick=async()=>{
+  const p1=$("cP1").value, p2=$("cP2").value; $("cErr").textContent="";
+  if(p1.length<8){ $("cErr").textContent="La contraseña debe tener al menos 8 caracteres."; return; }
+  if(p1!==p2){ $("cErr").textContent="Las dos contraseñas no coinciden."; return; }
+  if(MYDOC&&MYDOC.documento&&soloDig(p1)===String(MYDOC.documento)){ $("cErr").textContent="La contraseña no puede ser su número de cédula."; return; }
+  $("cBtn").disabled=true;
+  try{
+    await auth.currentUser.updatePassword(p1);
+    await db.collection("usuarios").doc(UID).update({debeCambiarClave:false,claveCambiadaEn:sts()});
+    $("cP1").value=$("cP2").value=""; toast("Contraseña guardada. Use la nueva contraseña desde ahora.");
+    screen("app"); startData(); setTab("lista");
+  }catch(e){ $("cErr").textContent=e&&e.code==="auth/requires-recent-login"?"Por seguridad, salga, vuelva a ingresar y cambie la contraseña de inmediato.":errMsg(e); }
+  finally{ $("cBtn").disabled=false; }
+};
 function showMsg(t,txt){ screen("gPending"); $("pTitle").textContent=t; $("pText").textContent=txt; $("bootBox").hidden=true; sync("err","Sin acceso"); }
 async function showPending(user){
   let init=true; try{ init=(await db.collection("sistema").doc("init").get()).exists; }catch(_){}
@@ -893,10 +922,21 @@ $("catBody").addEventListener("click",async ev=>{
 });
 
 /* ---------- usuarios ---------- */
+let BULK_SEL=null;
+function accesoDe(u){ return (u.email||"").endsWith("@"+DOM_CED)?{t:"cedula",v:u.email.split("@")[0]}:{t:"correo",v:u.email||""}; }
+function personalSinUsuario(){ const act=new Set(USERS.filter(u=>u.activo).map(u=>u.personalId).filter(Boolean)); const ced=new Set(USERS.filter(u=>u.activo).map(u=>accesoDe(u).v)); return PERSONAL.filter(p=>p.activo!==false&&p.documento&&!act.has(p.id)&&!ced.has(String(p.documento))); }
 function renderUsers(){
   if(!isAdmin()){ $("usersBody").innerHTML=""; return; }
-  $("usersBody").innerHTML=`<div class="card"><h2 class="sec">Crear usuario</h2>
-    <p class="note">El usuario entra con el correo y la contraseña temporal que usted le entregue. Después puede cambiarla con «¿Olvidó su contraseña?» en la pantalla de ingreso.</p>
+  const pend=personalSinUsuario(); if(!BULK_SEL) BULK_SEL=new Set(pend.map(p=>p.id));
+  $("usersBody").innerHTML=`<div class="card"><h2 class="sec">Crear accesos con cédula</h2>
+    <p class="note">Cada persona entra con su número de cédula. La contraseña inicial también es la cédula, y en el primer ingreso la herramienta la obliga a crear una propia. Mientras no la cambie, no puede ver ni registrar nada.</p>
+    ${pend.length?`<div class="bar" style="margin:10px 0"><label class="f">Rol para los seleccionados<select id="bkRol"><option value="operador">Operador</option><option value="consulta">Consulta</option><option value="admin">Administrador</option></select></label><span class="grow"></span><button class="btn ghost" id="bkAll">Marcar todos</button><button class="btn ghost" id="bkNone">Desmarcar todos</button></div>
+    <div class="checks" id="bkList">${pend.map(p=>`<label><input type="checkbox" value="${esc(p.id)}" ${BULK_SEL.has(p.id)?"checked":""}><span>${esc(p.nombre)}<br><small class="mono">${esc(p.documento)}${String(p.documento).length<6?" · cédula de menos de 6 dígitos: no admitida":""}</small></span></label>`).join("")}</div>
+    <div class="err" id="bkErr" style="margin-top:6px"></div>
+    <div class="bar" style="justify-content:flex-end"><button class="btn primary" id="bkBtn">Crear accesos seleccionados</button></div>`:'<p class="note" style="margin-top:8px"><b>Todo el personal activo ya tiene acceso.</b> Si agrega personas en Catálogos, aparecerán aquí.</p>'}
+  </div>
+  <div class="card"><h2 class="sec">Crear usuario con correo</h2>
+    <p class="note">Para administradores o personas que no están en el catálogo de personal. Pueden recuperar su contraseña por correo.</p>
     <div class="g" style="margin-top:8px">
       <label class="f w2"><span>Nombre completo</span><input id="nuNombre"></label>
       <label class="f w2"><span>Correo</span><input type="email" id="nuEmail"></label>
@@ -905,26 +945,48 @@ function renderUsers(){
     </div>
     <div class="err" id="nuErr" style="margin-top:6px"></div>
     <div class="bar" style="justify-content:flex-end"><button class="btn primary" id="nuBtn">Crear usuario</button></div></div>
-  <div class="card"><h2 class="sec">Usuarios</h2>
+  <div class="card"><h2 class="sec">Usuarios (${USERS.filter(u=>u.activo).length} activos)</h2>
     <p class="note"><b>Administrador:</b> catálogos, usuarios, editar cerrados, reabrir y anular. <b>Operador:</b> crea, edita y cierra reportes abiertos. <b>Consulta:</b> solo ve. Los usuarios no se borran: se desactivan.</p>
-    <div class="scroll" style="margin-top:8px"><table class="t cat-t"><thead><tr><th>Nombre</th><th>Correo</th><th>Rol</th><th>Activo</th><th></th></tr></thead><tbody>${USERS.map(u=>`<tr data-u="${esc(u.id)}"><td><input data-f="nombre" value="${esc(u.nombre||"")}"></td><td>${esc(u.email||"")}</td><td><select data-f="rol" ${u.id===UID?"disabled":""}>${["admin","operador","consulta"].map(r=>`<option value="${r}" ${u.rol===r?"selected":""}>${ROL_LBL[r]}</option>`).join("")}</select></td><td><input type="checkbox" data-f="activo" ${u.activo?"checked":""} ${u.id===UID?"disabled":""}></td><td style="white-space:nowrap"><button class="btn" data-us="save">Guardar</button> <button class="btn ghost" data-us="reset">Enviar enlace de contraseña</button></td></tr>`).join("")}</tbody></table></div></div>`;
+    <div class="scroll" style="margin-top:8px"><table class="t cat-t"><thead><tr><th>Nombre</th><th>Ingresa con</th><th>Rol</th><th>Activo</th><th>Contraseña</th><th></th></tr></thead><tbody>${USERS.map(u=>{ const a=accesoDe(u); return `<tr data-u="${esc(u.id)}" ${u.activo?"":'style="opacity:.6"'}><td><input data-f="nombre" value="${esc(u.nombre||"")}"></td><td class="mono">${esc(a.v)}<div class="note" style="margin:0">${a.t==="cedula"?"cédula":"correo"}</div></td><td><select data-f="rol" ${u.id===UID?"disabled":""}>${["admin","operador","consulta"].map(r=>`<option value="${r}" ${u.rol===r?"selected":""}>${ROL_LBL[r]}</option>`).join("")}</select></td><td><input type="checkbox" data-f="activo" ${u.activo?"checked":""} ${u.id===UID?"disabled":""}></td><td>${u.debeCambiarClave?'<span class="flag">Pendiente primer cambio</span>':'<span class="note" style="margin:0">Propia</span>'}</td><td style="white-space:nowrap"><button class="btn" data-us="save">Guardar</button> ${a.t==="correo"?'<button class="btn ghost" data-us="reset">Enviar enlace de contraseña</button>':(u.id!==UID&&u.activo?'<button class="btn ghost" data-us="olvido">Olvidó la contraseña</button>':"")}</td></tr>`; }).join("")}</tbody></table></div></div>`;
 }
 function tempPass(){ const c="ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789"; let s=""; const a=new Uint32Array(10); crypto.getRandomValues(a); a.forEach(x=>s+=c[x%c.length]); return s; }
+async function crearCuenta(email,pass){ if(!secApp) secApp=firebase.initializeApp(FIREBASE_CONFIG,"secundaria"); const cred=await secApp.auth().createUserWithEmailAndPassword(email,pass); const id=cred.user.uid; await secApp.auth().signOut(); return id; }
+$("usersBody").addEventListener("change",ev=>{ if(ev.target.closest("#bkList")){ const id=ev.target.value; ev.target.checked?BULK_SEL.add(id):BULK_SEL.delete(id); } });
 $("usersBody").addEventListener("click",async ev=>{
   const t=ev.target;
+  if(t.id==="bkAll"){ BULK_SEL=new Set(personalSinUsuario().map(p=>p.id)); renderUsers(); return; }
+  if(t.id==="bkNone"){ BULK_SEL=new Set(); renderUsers(); return; }
+  if(t.id==="bkBtn"){
+    const rol=$("bkRol").value; const sel=personalSinUsuario().filter(p=>BULK_SEL.has(p.id));
+    if(!sel.length){ $("bkErr").textContent="Seleccione al menos una persona."; return; }
+    t.disabled=true; const ok=[], fallo=[];
+    for(let i=0;i<sel.length;i++){
+      const p=sel[i], ced=soloDig(p.documento); $("bkErr").textContent=`Creando ${i+1} de ${sel.length}: ${p.nombre}…`;
+      if(ced.length<6){ fallo.push(`${p.nombre} (${ced}): la cédula tiene menos de 6 dígitos y Firebase exige contraseñas de 6 o más`); continue; }
+      try{
+        const nuid=await crearCuenta(ced+"@"+DOM_CED,ced);
+        const b=db.batch();
+        b.set(db.collection("usuarios").doc(nuid),{email:ced+"@"+DOM_CED,nombre:p.nombre,rol,activo:true,personalId:p.id,documento:ced,debeCambiarClave:true,creadoEn:sts(),creadoPor:UID});
+        b.set(db.collection("auditoria_admin").doc(),{uid:UID,ts:sts(),accion:"Usuario creado",detalle:`${p.nombre} (cédula ${ced}) como ${ROL_LBL[rol]}`});
+        await b.commit(); ok.push(p.nombre);
+      }catch(e){ fallo.push(`${p.nombre} (${ced}): ${e.code==="auth/email-already-in-use"?"ya existe una cuenta con esa cédula en Firebase (ver «Olvidó la contraseña»)":errMsg(e)}`); }
+    }
+    t.disabled=false; $("bkErr").textContent=""; BULK_SEL=null;
+    await modal({title:"Accesos creados: "+ok.length+" de "+sel.length,text:(ok.length?"Cada persona entra con su cédula como usuario y como contraseña, y al ingresar debe crear su propia contraseña.":"")+(fallo.length?"\n\nNo se crearon:\n• "+fallo.join("\n• "):""),yes:"Listo"});
+    renderUsers(); return;
+  }
   if(t.id==="nuBtn"){
     const nombre=titulo($("nuNombre").value), email=$("nuEmail").value.trim().toLowerCase(), rol=$("nuRol").value, pass=$("nuPass").value;
     if(nombre.length<5||!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ $("nuErr").textContent="Escriba el nombre completo y un correo válido."; return; }
     if(pass.length<6){ $("nuErr").textContent="La contraseña temporal debe tener al menos 6 caracteres."; return; }
     t.disabled=true; $("nuErr").textContent="";
     try{
-      if(!secApp) secApp=firebase.initializeApp(FIREBASE_CONFIG,"secundaria");
-      const cred=await secApp.auth().createUserWithEmailAndPassword(email,pass); const nuid=cred.user.uid; await secApp.auth().signOut();
+      const nuid=await crearCuenta(email,pass);
       const b=db.batch();
-      b.set(db.collection("usuarios").doc(nuid),{email,nombre,rol,activo:true,creadoEn:sts(),creadoPor:UID});
+      b.set(db.collection("usuarios").doc(nuid),{email,nombre,rol,activo:true,debeCambiarClave:true,creadoEn:sts(),creadoPor:UID});
       b.set(db.collection("auditoria_admin").doc(),{uid:UID,ts:sts(),accion:"Usuario creado",detalle:`${nombre} (${email}) como ${ROL_LBL[rol]}`});
       await b.commit();
-      await modal({title:"Usuario creado",text:`Entréguele a ${nombre} estos datos por un medio privado:\nCorreo: ${email}\nContraseña temporal: ${pass}`,yes:"Listo"});
+      await modal({title:"Usuario creado",text:`Entréguele a ${nombre} estos datos por un medio privado:\nCorreo: ${email}\nContraseña temporal: ${pass}\nAl ingresar deberá crear su propia contraseña.`,yes:"Listo"});
       renderUsers();
     }catch(e){ $("nuErr").textContent=errMsg(e)+(e.code==="auth/email-already-in-use"?" Si la cuenta quedó a medio crear, elimínela en la consola de Firebase (Authentication → Usuarios) y vuelva a crearla aquí.":""); }
     finally{ t.disabled=false; }
@@ -932,9 +994,15 @@ $("usersBody").addEventListener("click",async ev=>{
   }
   const tr=t.closest("tr[data-u]"); if(!tr||!t.dataset.us) return; const u=USERS.find(x=>x.id===tr.dataset.u); if(!u) return;
   if(t.dataset.us==="reset"){ try{ await auth.sendPasswordResetEmail(u.email); toast("Enlace enviado a "+u.email+"."); }catch(e){ toast(errMsg(e)); } return; }
+  if(t.dataset.us==="olvido"){
+    const ok=await modal({title:"Restablecer acceso de "+(u.nombre||""),text:`Las cuentas con cédula no tienen correo, así que la contraseña se restablece en dos pasos:\n\n1. En la consola de Firebase → Authentication → Usuarios, busque ${u.email} y elimínelo (menú ⋮ → Eliminar cuenta).\n2. Toque «Confirmar» aquí. El usuario actual queda desactivado y la persona vuelve a aparecer en «Crear accesos con cédula» para crearle el acceso de nuevo, con la cédula como contraseña inicial.\n\nSu historial anterior se conserva.`,yes:"Ya lo eliminé en Firebase"});
+    if(!ok) return;
+    try{ const b=db.batch(); b.update(db.collection("usuarios").doc(u.id),{activo:false,rol:u.rol}); b.set(db.collection("auditoria_admin").doc(),{uid:UID,ts:sts(),accion:"Acceso restablecido",detalle:`${u.nombre} (${accesoDe(u).v}): usuario anterior desactivado`}); await b.commit(); BULK_SEL=null; toast("Listo. Créele el acceso de nuevo arriba."); }catch(e){ toast(errMsg(e)); }
+    return;
+  }
   if(t.dataset.us==="save"){
     const nombre=titulo(tr.querySelector('[data-f="nombre"]').value), rol=tr.querySelector('[data-f="rol"]').value, activo=tr.querySelector('[data-f="activo"]').checked;
-    try{ const b=db.batch(); b.update(db.collection("usuarios").doc(u.id),{nombre,rol,activo}); b.set(db.collection("auditoria_admin").doc(),{uid:UID,ts:sts(),accion:"Usuario modificado",detalle:`${u.email}: rol ${ROL_LBL[rol]}, ${activo?"activo":"inactivo"}`}); await b.commit(); toast("Usuario actualizado."); }catch(e){ toast(errMsg(e)); }
+    try{ const b=db.batch(); b.update(db.collection("usuarios").doc(u.id),{nombre,rol,activo}); b.set(db.collection("auditoria_admin").doc(),{uid:UID,ts:sts(),accion:"Usuario modificado",detalle:`${accesoDe(u).v}: rol ${ROL_LBL[rol]}, ${activo?"activo":"inactivo"}`}); await b.commit(); toast("Usuario actualizado."); }catch(e){ toast(errMsg(e)); }
   }
 });
 
