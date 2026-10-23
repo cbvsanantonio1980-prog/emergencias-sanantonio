@@ -490,7 +490,8 @@ async function onUser(user){
   UNSUB.forEach(f=>{ try{f();}catch(_){} }); UNSUB=[]; EMERG=[]; PERSONAL=[]; AUD=[]; USERS=[]; emLoaded=false; DETAIL=null; EDIT_ID=null;
   if(!user){ UID=null; MYDOC=null; $("userBox").hidden=true; $("rolePill").hidden=true; screen("gLogin"); sync("wait","Sin sesión"); return; }
   UID=user.uid; $("userBox").hidden=false; $("userName").textContent=user.email; sync("wait","Conectando");
-  const unsubMe=db.collection("usuarios").doc(UID).onSnapshot(async s=>{
+  const unsubMe=db.collection("usuarios").doc(UID).onSnapshot({includeMetadataChanges:true},async s=>{
+    if(s.metadata.hasPendingWrites) return; // esperar a que el servidor confirme el usuario
     MYDOC=s.exists?s.data():null;
     if(!MYDOC){ await showPending(user); return; }
     if(MYDOC.activo!==true){ showMsg("Usuario desactivado","Su usuario fue desactivado. Comuníquese con el administrador del cuerpo de bomberos."); return; }
@@ -526,8 +527,11 @@ $("bBtn").onclick=async()=>{
 
 function startData(){
   UNSUB.slice(1).forEach(f=>{ try{f();}catch(_){} }); UNSUB=UNSUB.slice(0,1);
-  const fail=e=>{ sync("err","Error de conexión"); $("dbBanner").hidden=false; $("dbBanner").textContent=errMsg(e); };
-  UNSUB.push(db.collection("cfg").onSnapshot(s=>{ s.docs.forEach(d=>CFG[d.id]=d.data()); fillTipoFilter(); sync("ok","Sincronizado"); if(TAB!=="form"&&!(TAB==="cat"&&Object.keys(CAT_DRAFT).length)) render(); },fail));
+  const fail=e=>{
+    if(e&&e.code==="permission-denied"&&(startData._r||0)<3){ startData._r=(startData._r||0)+1; clearTimeout(startData._t); startData._t=setTimeout(()=>{ $("dbBanner").hidden=true; startData(); render(); },2500); sync("wait","Reconectando…"); return; }
+    sync("err","Error de conexión"); $("dbBanner").hidden=false; $("dbBanner").textContent=errMsg(e)+" Recargue la página (F5).";
+  };
+  UNSUB.push(db.collection("cfg").onSnapshot(s=>{ startData._r=0; $("dbBanner").hidden=true; s.docs.forEach(d=>CFG[d.id]=d.data()); fillTipoFilter(); sync("ok","Sincronizado"); if(TAB!=="form"&&!(TAB==="cat"&&Object.keys(CAT_DRAFT).length)) render(); },fail));
   UNSUB.push(db.collection("personal").onSnapshot(s=>{ PERSONAL=s.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.nombre||"").localeCompare(b.nombre||"","es")); if(TAB!=="form"&&!(TAB==="cat"&&(CAT_DRAFT.personal||IMPORT))) render(); },fail));
   UNSUB.push(db.collection("emergencias").orderBy("aviso","desc").limit(1000).onSnapshot(s=>{ EMERG=s.docs.map(d=>({id:d.id,...d.data({serverTimestamps:"estimate"})})); LIMIT_HIT=s.size>=1000; emLoaded=true; sync(s.metadata.fromCache?"wait":"ok",s.metadata.fromCache?"Sin conexión (datos guardados)":"Sincronizado"); if(TAB!=="form"&&TAB!=="cat"&&TAB!=="users") render(); },fail));
   UNSUB.push(db.collection("auditoria").orderBy("ts","desc").limit(1000).onSnapshot(s=>{ AUD=s.docs.map(d=>({id:d.id,...d.data({serverTimestamps:"estimate"})})); if(TAB==="hist"||(TAB==="lista"&&DETAIL)) render(); },()=>{}));
