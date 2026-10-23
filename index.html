@@ -1,0 +1,985 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#1d2a3a">
+<title>Emergencias Bomberos San Antonio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<style>
+/* Layout: banda institucional oscura + pestañas; listado con ficha de detalle; formulario por secciones del informe de emergencia */
+:root{
+  --bg:#f3f4f6; --surface:#ffffff; --surface2:#e9ecf1; --line:#d3d8e0; --fg:#18202b; --muted:#5b6574;
+  --ink:#1d2a3a; --ink-fg:#f2f4f7; --accent:#b3242c; --accent-fg:#ffffff;
+  --ok:#2f7d4f; --warn:#a86400; --err:#b3242c; --open:#1f5fa8; --bar:#c9cfd8;
+  --f-display:"Barlow Condensed","Arial Narrow",Arial,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#12161c; --surface:#1a2028; --surface2:#232a35; --line:#343c49; --fg:#e6e9ee; --muted:#9aa3b1;
+  --ink:#0c1118; --ink-fg:#eef1f5; --accent:#e0484f; --accent-fg:#ffffff;
+  --ok:#5cbf85; --warn:#e3a547; --err:#f06a70; --open:#6ea8ef; --bar:#3c4555; color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --bg:#12161c; --surface:#1a2028; --surface2:#232a35; --line:#343c49; --fg:#e6e9ee; --muted:#9aa3b1;
+  --ink:#0c1118; --ink-fg:#eef1f5; --accent:#e0484f; --accent-fg:#ffffff;
+  --ok:#5cbf85; --warn:#e3a547; --err:#f06a70; --open:#6ea8ef; --bar:#3c4555; color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:14px;line-height:1.45}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--ink)}
+.wrap{max-width:1180px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+header.top{background:var(--ink);color:var(--ink-fg)}
+header.top .wrap{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding-block:14px}
+.brand{display:flex;flex-direction:column;margin-right:auto;min-width:0}
+.brand b{font-family:var(--f-display);font-size:22px;font-weight:700;letter-spacing:.02em;text-transform:uppercase}
+.brand b i{font-style:normal;color:var(--accent)}
+.brand span{font-size:12.5px;opacity:.8}
+.pill{font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid rgba(255,255,255,.25);white-space:nowrap}
+.sync-ok{border-color:#5cbf85;color:#8fe0b0}.sync-wait{opacity:.8}.sync-err{border-color:#f06a70;color:#ffb3b6}
+nav.tabs{background:var(--surface);border-bottom:1px solid var(--line);position:sticky;top:env(safe-area-inset-top,0px);z-index:5}
+nav.tabs .wrap{display:flex;gap:2px;overflow-x:auto}
+nav.tabs button{font:600 15px var(--f-display);letter-spacing:.04em;text-transform:uppercase;background:none;border:0;border-bottom:3px solid transparent;color:var(--muted);padding:12px 12px 9px;cursor:pointer;white-space:nowrap}
+nav.tabs button[aria-selected="true"]{color:var(--fg);border-bottom-color:var(--accent)}
+nav.tabs button:focus-visible,.btn:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--open);outline-offset:1px}
+main{padding-block:18px 48px}
+h2.sec{font:700 20px var(--f-display);letter-spacing:.03em;text-transform:uppercase;margin:0 0 10px;text-wrap:balance}
+h3{font:600 16px var(--f-display);letter-spacing:.04em;text-transform:uppercase;margin:0 0 8px;color:var(--muted)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:16px}
+.stack{display:flex;flex-direction:column;gap:14px}
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end}
+.grow{flex:1}
+.f{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--muted);min-width:0}
+.f > span{font-weight:500}
+.f em{color:var(--accent);font-style:normal}
+input,select,textarea{font:inherit;color:var(--fg);background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:7px 8px;min-width:0;width:100%}
+textarea{min-height:84px;resize:vertical}
+input[type=checkbox]{width:auto}
+.bar .f{width:auto}
+.bar input,.bar select{width:auto}
+.btn{font:600 13px var(--f-body);padding:8px 14px;border-radius:4px;border:1px solid var(--line);background:var(--surface);color:var(--fg);cursor:pointer;white-space:nowrap}
+.btn:hover{background:var(--surface2)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
+.btn.primary:hover{filter:brightness(1.08)}
+.btn.dark{background:var(--ink);border-color:var(--ink);color:var(--ink-fg)}
+.btn.ghost{border-color:transparent;background:none;color:var(--muted)}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+.note{font-size:12.5px;color:var(--muted);margin:4px 0 0;max-width:80ch}
+.banner{border:1px solid var(--warn);color:var(--fg);background:var(--surface);border-left-width:4px;padding:10px 14px;border-radius:4px;margin-bottom:14px}
+.scroll{overflow-x:auto}
+table.t{border-collapse:collapse;width:100%;font-size:13.5px}
+table.t th{font:600 12px var(--f-body);text-transform:uppercase;letter-spacing:.05em;color:var(--muted);text-align:left;padding:8px 10px;border-bottom:2px solid var(--line);white-space:nowrap;background:var(--surface)}
+table.t td{padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+table.t tbody tr.click{cursor:pointer}
+table.t tbody tr.click:hover{background:var(--surface2)}
+.num,.mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+td.r,th.r{text-align:right}
+.chip{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;padding:2px 9px;border-radius:999px;border:1px solid currentColor;white-space:nowrap}
+.chip::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+.st-abierta{color:var(--open)}.st-cerrada{color:var(--ok)}.st-anulada{color:var(--muted)}
+.flag{color:var(--warn);font-size:12px;font-weight:600}
+tr.anulada td{color:var(--muted);text-decoration:line-through;text-decoration-color:var(--line)}
+tr.anulada td:last-child{text-decoration:none}
+.empty{padding:28px 16px;text-align:center;color:var(--muted)}
+.empty b{display:block;font:600 18px var(--f-display);text-transform:uppercase;letter-spacing:.04em;color:var(--fg);margin-bottom:6px}
+/* formulario */
+form.rep{display:flex;flex-direction:column;gap:14px}
+fieldset{border:1px solid var(--line);border-radius:6px;background:var(--surface);padding:14px 16px 16px;margin:0;min-width:0}
+legend{font:700 15px var(--f-display);letter-spacing:.05em;text-transform:uppercase;padding:0 6px;color:var(--fg)}
+legend small{font:400 12px var(--f-body);text-transform:none;letter-spacing:0;color:var(--muted);margin-left:6px}
+.g{display:grid;gap:10px 12px;grid-template-columns:repeat(auto-fill,minmax(200px,1fr))}
+.g .w2{grid-column:span 2}.g .wall{grid-column:1/-1}
+@media (max-width:520px){.g .w2{grid-column:1/-1}}
+.times{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.tm{border:1px solid var(--line);border-radius:4px;padding:6px 10px;background:var(--surface2);min-width:120px}
+.tm span{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+.tm b{font:500 18px var(--f-mono)}
+.checks{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:4px 12px}
+.checks label{display:flex;gap:7px;align-items:flex-start;font-size:13.5px;color:var(--fg);padding:3px 0}
+.checks label small{color:var(--muted)}
+.vrow{display:grid;grid-template-columns:2fr 2fr 1fr 1fr 1fr auto;gap:8px;align-items:end;padding:8px 0;border-bottom:1px dashed var(--line)}
+@media (max-width:760px){.vrow{grid-template-columns:1fr 1fr}.vrow .km{grid-column:auto}}
+.vrow .kmr{font:500 14px var(--f-mono);padding:8px 0}
+.val{border-radius:6px;padding:10px 14px;border:1px solid var(--line);background:var(--surface)}
+.val ul{margin:4px 0 0;padding-left:18px}
+.val .e{color:var(--err)}.val .w{color:var(--warn)}
+.actions{display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end;position:sticky;bottom:0;background:var(--bg);padding-block:10px calc(10px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--line)}
+/* ficha */
+.ficha-h{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;margin-bottom:12px}
+.ficha-h .n{font:700 28px var(--f-display);letter-spacing:.02em}
+.ficha-h .tp{font-size:15px;font-weight:600}
+.kv{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px 18px;margin:0}
+.kv div{min-width:0}
+.kv dt{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.kv dd{margin:2px 0 0;overflow-wrap:anywhere}
+.txt{white-space:pre-wrap;overflow-wrap:anywhere;margin:2px 0 0}
+.fsec{border-top:1px solid var(--line);padding-top:12px;margin-top:12px}
+.audit{list-style:none;margin:0;padding:0;font-size:13px}
+.audit li{padding:6px 0;border-bottom:1px solid var(--line);display:flex;gap:10px;flex-wrap:wrap}
+.audit .when{font-family:var(--f-mono);color:var(--muted)}
+/* resumen */
+.kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.kpi{border:1px solid var(--line);background:var(--surface);border-radius:6px;padding:10px 12px}
+.kpi span{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.kpi b{font:600 26px var(--f-mono)}
+.kpi small{color:var(--muted)}
+.hbar{height:10px;background:var(--bar);border-radius:2px;position:relative;min-width:60px}
+.hbar i{position:absolute;inset:0 auto 0 0;background:var(--accent);border-radius:2px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:860px){.two{grid-template-columns:1fr}}
+/* modal y toast */
+.modal{position:fixed;inset:0;background:rgba(10,14,20,.55);display:flex;align-items:center;justify-content:center;z-index:50;padding:16px}
+.modal .card{max-width:480px;width:100%}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(18px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--ink-fg);padding:10px 16px;border-radius:6px;z-index:60;font-size:13.5px;max-width:calc(100% - 32px)}
+.cat-t input,.cat-t select{padding:5px 6px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+html,body{margin:0}
+:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+[hidden]{display:none!important}
+img{max-width:100%}
+.gate{min-height:70vh;display:flex;align-items:center;justify-content:center;padding-block:32px}
+.gate .card{max-width:420px;width:100%}
+.gate .seal{font:700 26px var(--f-display);text-transform:uppercase;letter-spacing:.03em;line-height:1.05;margin:0 0 4px}
+.gate .seal i{font-style:normal;color:var(--accent)}
+.gate form{display:flex;flex-direction:column;gap:12px;margin-top:14px}
+.err{color:var(--err);font-size:13px;min-height:1em}
+.userbox{display:flex;align-items:center;gap:8px}
+.userbox .btn{padding:4px 10px;font-size:12px;background:transparent;color:var(--ink-fg);border-color:rgba(255,255,255,.3)}
+.imp-new{color:var(--ok)}.imp-old{color:var(--muted)}.imp-dup{color:var(--warn)}
+</style>
+</head>
+<body>
+<header class="top"><div class="wrap">
+  <div class="brand"><b>Bomberos San Antonio <i>·</i> Emergencias</b><span id="instName">Registro de emergencias atendidas</span></div>
+  <span class="pill" id="rolePill" hidden></span>
+  <span class="pill sync-wait" id="syncPill">Conectando</span>
+  <span class="userbox" id="userBox" hidden><span id="userName" style="font-size:13px"></span><button class="btn" id="btnLogout">Salir</button></span>
+</div></header>
+
+<!-- ======== PANTALLAS DE ACCESO ======== -->
+<div class="wrap gate" id="gCfg" hidden><div class="card">
+  <p class="seal">Falta configurar <i>Firebase</i></p>
+  <p class="note">Este archivo todavía no tiene los datos del proyecto de Firebase. Abra el archivo <b>index.html</b>, busque <code>FIREBASE_CONFIG</code> y pegue la configuración que entrega la consola de Firebase (Configuración del proyecto → Tus apps → Configuración del SDK).</p>
+</div></div>
+
+<div class="wrap gate" id="gLogin" hidden><div class="card">
+  <p class="seal">Bomberos San Antonio<br><i>Registro de emergencias</i></p>
+  <p class="note">Ingrese con el correo y la contraseña que le asignó el administrador.</p>
+  <form id="loginForm" novalidate>
+    <label class="f"><span>Correo</span><input type="email" id="lEmail" autocomplete="username" required></label>
+    <label class="f"><span>Contraseña</span><input type="password" id="lPass" autocomplete="current-password" required></label>
+    <div class="err" id="lErr"></div>
+    <button class="btn primary" type="submit" id="lBtn">Ingresar</button>
+    <button class="btn ghost" type="button" id="lReset">¿Olvidó su contraseña?</button>
+  </form>
+</div></div>
+
+<div class="wrap gate" id="gPending" hidden><div class="card stack">
+  <p class="seal" id="pTitle">Usuario no habilitado</p>
+  <p class="note" id="pText" style="margin:0"></p>
+  <div id="bootBox" hidden class="stack">
+    <label class="f"><span>Su nombre completo</span><input id="bNombre"></label>
+    <div class="err" id="bErr"></div>
+    <button class="btn primary" id="bBtn">Configurar como primer administrador</button>
+  </div>
+  <button class="btn ghost" id="pLogout">Salir</button>
+</div></div>
+
+<!-- ======== APLICACIÓN ======== -->
+<div id="app" hidden>
+<nav class="tabs" role="tablist"><div class="wrap" id="tabs">
+  <button data-tab="lista" aria-selected="true">Emergencias</button>
+  <button data-tab="form" id="tabForm">Nuevo reporte</button>
+  <button data-tab="resumen">Resumen</button>
+  <button data-tab="cat">Catálogos</button>
+  <button data-tab="users" id="tabUsers">Usuarios</button>
+  <button data-tab="hist">Historial</button>
+</div></nav>
+
+<main class="wrap">
+  <div id="dbBanner" class="banner" hidden></div>
+
+  <section data-panel="lista">
+    <div id="listView" class="stack">
+      <div class="bar">
+        <label class="f grow">Buscar<input id="q" placeholder="Número, dirección, sector o detalle"></label>
+        <label class="f">Estado<select id="fEstado"><option value="">Todos</option><option value="abierta">Abiertas</option><option value="cerrada">Cerradas</option><option value="anulada">Anuladas</option></select></label>
+        <label class="f">Tipo<select id="fTipo"><option value="">Todos</option></select></label>
+        <label class="f">Desde<input type="date" id="fDesde"></label>
+        <label class="f">Hasta<input type="date" id="fHasta"></label>
+        <button class="btn" id="btnXls">Exportar Excel</button>
+        <button class="btn primary" id="btnNew">Nuevo reporte</button>
+      </div>
+      <div class="card" style="padding:0">
+        <div class="scroll" id="listWrap"><div class="empty">Cargando emergencias…</div></div>
+      </div>
+      <p class="note" id="listFoot"></p>
+    </div>
+    <div id="detView" hidden></div>
+  </section>
+
+  <section data-panel="form" hidden>
+    <div class="bar" style="margin-bottom:12px">
+      <h2 class="sec grow" id="formTitle" style="margin:0">Nuevo reporte de emergencia</h2>
+      <span class="note" id="formSub"></span>
+    </div>
+    <form class="rep" id="rep" autocomplete="off">
+      <fieldset><legend>Recepción del aviso</legend>
+        <div class="g">
+          <label class="f"><span>Fecha y hora del aviso <em>*</em></span><input type="datetime-local" id="f_aviso" required></label>
+          <label class="f"><span>Medio de aviso</span><select id="f_medio"></select></label>
+          <label class="f"><span>Quién reporta</span><input id="f_repNom" placeholder="Nombre"></label>
+          <label class="f"><span>Teléfono de quien reporta</span><input id="f_repTel" inputmode="tel"></label>
+          <label class="f"><span>Recibido por</span><select id="f_recibe"></select></label>
+        </div>
+      </fieldset>
+      <fieldset><legend>Clasificación</legend>
+        <div class="g">
+          <label class="f w2"><span>Tipo de emergencia <em>*</em></span><select id="f_tipo"></select></label>
+          <label class="f w2"><span>Detalle del evento</span><input id="f_tipoDet" placeholder="Ej.: incendio en cocina de vivienda de un piso"></label>
+        </div>
+      </fieldset>
+      <fieldset><legend>Ubicación</legend>
+        <div class="g">
+          <label class="f"><span>Zona</span><select id="f_zona"><option value="">—</option><option>Urbana</option><option>Rural</option></select></label>
+          <label class="f"><span>Barrio / vereda</span><input id="f_sector" list="dlSector"></label>
+          <label class="f w2"><span>Dirección</span><input id="f_dir"></label>
+          <label class="f w2"><span>Punto de referencia</span><input id="f_ref"></label>
+          <label class="f"><span>Coordenadas (lat, long)</span><input id="f_coord" placeholder="3.2601, -76.5398"></label>
+          <label class="f"><span>Municipio</span><input id="f_mun"></label>
+        </div>
+        <datalist id="dlSector"></datalist>
+      </fieldset>
+      <fieldset><legend>Tiempos de atención <small>fecha y hora completas: los servicios que pasan la medianoche se calculan bien</small></legend>
+        <div class="g">
+          <label class="f"><span>Salida de la estación (despacho)</span><input type="datetime-local" id="f_salida"></label>
+          <label class="f"><span>Llegada al sitio</span><input type="datetime-local" id="f_llegada"></label>
+          <label class="f"><span>Emergencia controlada</span><input type="datetime-local" id="f_control"></label>
+          <label class="f"><span>Regreso a la estación (fin)</span><input type="datetime-local" id="f_fin"></label>
+        </div>
+        <div class="times" id="timesBox"></div>
+      </fieldset>
+      <fieldset><legend>Recursos empleados</legend>
+        <div class="g" style="margin-bottom:10px">
+          <label class="f w2"><span>Comandante / oficial a cargo</span><select id="f_cmd"></select></label>
+        </div>
+        <h3>Vehículos</h3>
+        <div id="vRows"></div>
+        <button type="button" class="btn" id="addV" style="margin-top:8px">Agregar vehículo</button>
+        <h3 style="margin-top:16px">Personal que asistió</h3>
+        <div class="checks" id="pChecks"></div>
+        <label class="f" style="margin-top:10px"><span>Otro personal no registrado en el catálogo</span><input id="f_pOtro" placeholder="Nombres separados por coma"></label>
+      </fieldset>
+      <fieldset><legend>Afectación y consumos</legend>
+        <div class="g">
+          <label class="f"><span>Lesionados</span><input type="number" min="0" step="1" id="f_les"></label>
+          <label class="f"><span>Fallecidos</span><input type="number" min="0" step="1" id="f_fal"></label>
+          <label class="f"><span>Personas rescatadas</span><input type="number" min="0" step="1" id="f_res"></label>
+          <label class="f"><span>Personas evacuadas</span><input type="number" min="0" step="1" id="f_eva"></label>
+          <label class="f"><span>Familias afectadas</span><input type="number" min="0" step="1" id="f_fam"></label>
+          <label class="f"><span>Viviendas afectadas</span><input type="number" min="0" step="1" id="f_viv"></label>
+          <label class="f"><span>Área afectada (m²)</span><input type="number" min="0" step="any" id="f_area"></label>
+          <label class="f"><span>Agua utilizada (galones)</span><input type="number" min="0" step="any" id="f_agua"></label>
+          <label class="f"><span>Espuma / agente (galones)</span><input type="number" min="0" step="any" id="f_esp"></label>
+        </div>
+      </fieldset>
+      <fieldset><legend>Entidades de apoyo</legend>
+        <div class="checks" id="eChecks"></div>
+        <label class="f" style="margin-top:10px"><span>Otra entidad</span><input id="f_eOtra"></label>
+      </fieldset>
+      <fieldset><legend>Informe de la atención</legend>
+        <div class="g">
+          <label class="f wall"><span>Situación encontrada</span><textarea id="f_desc"></textarea></label>
+          <label class="f wall"><span>Acciones realizadas</span><textarea id="f_acc"></textarea></label>
+          <label class="f wall"><span>Observaciones y recomendaciones</span><textarea id="f_obs"></textarea></label>
+        </div>
+      </fieldset>
+      <div class="val" id="valBox"></div>
+      <div class="actions">
+        <button type="button" class="btn ghost" id="btnCancel">Cancelar</button>
+        <button type="button" class="btn" id="btnSave">Guardar abierta</button>
+        <button type="button" class="btn primary" id="btnSaveClose">Guardar y cerrar</button>
+      </div>
+    </form>
+  </section>
+
+  <section data-panel="resumen" hidden>
+    <div class="bar" style="margin-bottom:12px">
+      <h2 class="sec grow" style="margin:0">Resumen de atención</h2>
+      <label class="f">Año<select id="rAnio"></select></label>
+      <label class="f">Mes<select id="rMes"><option value="">Todo el año</option></select></label>
+    </div>
+    <div id="resBody" class="stack"></div>
+  </section>
+
+  <section data-panel="cat" hidden><div id="catBody" class="stack"></div></section>
+
+  <section data-panel="users" hidden><div id="usersBody" class="stack"></div></section>
+
+  <section data-panel="hist" hidden>
+    <div class="card">
+      <h2 class="sec">Historial de cambios</h2>
+      <p class="note">Cada creación, edición, cierre, reapertura y anulación queda registrada con la hora del servidor y el usuario. Nadie, ni siquiera un administrador, puede modificar ni borrar estos registros desde la aplicación.</p>
+      <div class="bar" style="margin:10px 0"><label class="f grow">Filtrar<input id="hq" placeholder="Número, acción o usuario"></label></div>
+      <div class="scroll" id="histWrap"></div>
+    </div>
+  </section>
+</main>
+</div>
+
+<div class="modal" id="modal" hidden><div class="card stack">
+  <h2 class="sec" id="mTitle"></h2>
+  <p class="note" id="mText" style="margin:0"></p>
+  <label class="f" id="mFieldWrap"><span id="mLabel">Motivo</span><textarea id="mInput"></textarea></label>
+  <div class="bar" style="justify-content:flex-end"><button class="btn ghost" id="mNo">Cancelar</button><button class="btn primary" id="mYes">Confirmar</button></div>
+</div></div>
+<div class="toast" id="toast" hidden></div>
+<script>
+/* =====================================================================
+   CONFIGURACIÓN DE FIREBASE
+   Pegue aquí el objeto que entrega la consola de Firebase:
+   Configuración del proyecto → General → Tus apps → Configuración del SDK (Config)
+   ===================================================================== */
+const FIREBASE_CONFIG = {
+  apiKey: "PEGAR_AQUI",
+  authDomain: "",
+  projectId: "",
+  storageBucket: "",
+  messagingSenderId: "",
+  appId: ""
+};
+</script>
+<script>
+(function(){
+"use strict";
+/* ---------- constantes ---------- */
+const MEDIOS=["Línea 119","Línea 123","Llamada a la estación","Presencial en la estación","Radio","WhatsApp / mensajería","Otro"];
+const ENTIDADES=["Policía Nacional","Defensa Civil","Cruz Roja","Ejército Nacional","Agentes de tránsito","Ambulancia / IPS","CVC","Gestión del Riesgo municipal","Otro cuerpo de bomberos","Empresa de servicios públicos"];
+const TIPOS_SUGERIDOS=[
+ ["INC-EST","Incendio estructural","Incendios"],["INC-VEH","Incendio vehicular","Incendios"],["INC-CV","Incendio de cobertura vegetal","Incendios"],["INC-OTR","Otro incendio (basuras, eléctrico)","Incendios"],
+ ["RES-VEH","Accidente de tránsito / rescate vehicular","Rescates"],["RES-ALT","Rescate en alturas","Rescates"],["RES-ACU","Rescate acuático","Rescates"],["RES-EST","Rescate en estructuras o espacios confinados","Rescates"],["RES-ANI","Rescate de animales","Rescates"],
+ ["MAT-GAS","Fuga de gas","Materiales peligrosos"],["MAT-DER","Derrame de sustancias peligrosas","Materiales peligrosos"],
+ ["NAT-INU","Inundación","Eventos naturales"],["NAT-VEN","Vendaval","Eventos naturales"],["NAT-DES","Deslizamiento / movimiento en masa","Eventos naturales"],["NAT-ARB","Caída de árboles","Eventos naturales"],
+ ["APH","Atención prehospitalaria","Atención prehospitalaria"],
+ ["SER-ABE","Control de abejas, avispas e insectos","Servicios"],["SER-INS","Revisión / inspección técnica","Servicios"],["SER-APO","Apoyo institucional / prevención en eventos","Servicios"],["SER-AGU","Suministro de agua","Servicios"],
+ ["FAL","Falsa alarma","Otros"],["OTR","Otro","Otros"]];
+const VEHICULOS_INICIALES=[["MT01","Motocicleta"],["C1","Camioneta negra"],["C2","Camioneta gris (comando)"],["M5","Máquina extintora"]];
+const GENERAL_INICIAL={institucion:"Cuerpo de Bomberos Voluntarios de San Antonio",municipio:"Jamundí",departamento:"Valle del Cauca"};
+const MESES=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+const EST_LBL={abierta:"Abierta",cerrada:"Cerrada",anulada:"Anulada"};
+const ROL_LBL={admin:"Administrador",operador:"Operador",consulta:"Consulta"};
+const AFECT=[["les","Lesionados"],["fal","Fallecidos"],["res","Rescatados"],["eva","Evacuados"],["fam","Familias afectadas"],["viv","Viviendas afectadas"],["area","Área afectada (m²)"]];
+
+/* ---------- estado ---------- */
+let fb=null, auth=null, db=null, FV=null, secApp=null;
+let UID=null, MYDOC=null, ROLE="consulta";
+let EMERG=[], PERSONAL=[], AUD=[], USERS=[], CFG={general:{},tipos:{items:[]},vehiculos:{items:[]},sectores:{items:[]}};
+let TAB="lista", DETAIL=null, EDIT_ID=null, EDIT_BASE=null, EDIT_DOC=null, VROWS=[];
+let LIMIT_HIT=false, emLoaded=false, UNSUB=[], CAT_DRAFT={}, IMPORT=null;
+
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const uid=p=>p+Math.random().toString(36).slice(2,10);
+const items=k=>k==="personal"?PERSONAL:((CFG[k]&&Array.isArray(CFG[k].items))?CFG[k].items:[]);
+const isAdmin=()=>ROLE==="admin";
+const canWrite=()=>ROLE==="admin"||ROLE==="operador";
+const sts=()=>FV.serverTimestamp();
+
+/* ---------- fechas y tiempos ---------- */
+function parseL(s){ if(!s||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(s)) return null; const [d,t]=s.split("T"); const [y,m,da]=d.split("-").map(Number); const [h,mi]=t.split(":").map(Number); return Date.UTC(y,m-1,da,h,mi); }
+function diffMin(a,b){ const x=parseL(a), y=parseL(b); return (x==null||y==null)?null:Math.round((y-x)/60000); }
+function fmtMin(m){ if(m==null) return "—"; const s=m<0?"-":""; m=Math.abs(m); const h=Math.floor(m/60), r=m%60; return s+(h?h+" h "+String(r).padStart(2,"0")+" min":r+" min"); }
+function fmtDT(s){ if(!s) return "—"; const [d,t]=s.split("T"); const [y,m,da]=d.split("-"); return da+"/"+m+"/"+y+" "+(t||"").slice(0,5); }
+function nowLocal(){ const d=new Date(); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,16); }
+function toDate(v){ if(!v) return null; if(v.toDate) return v.toDate(); const d=new Date(v); return isNaN(d)?null:d; }
+function fmtTS(v){ const d=toDate(v); if(!d) return "—"; const p=n=>String(n).padStart(2,"0"); return p(d.getDate())+"/"+p(d.getMonth()+1)+"/"+d.getFullYear()+" "+p(d.getHours())+":"+p(d.getMinutes()); }
+function tiempos(e){ return {despacho:diffMin(e.aviso,e.salida), respuesta:diffMin(e.aviso,e.llegada), control:diffMin(e.llegada,e.controlado), atencion:diffMin(e.llegada,e.fin), total:diffMin(e.aviso,e.fin)}; }
+function xlSerial(s){ const v=parseL(s); return v==null?null:v/864e5+25569; }
+
+/* ---------- catálogos ---------- */
+function tipoOf(code,e){ const t=items("tipos").find(x=>x.codigo===code); if(t) return t; return code?{codigo:code,nombre:(e&&e.snap&&e.snap.tipo)||code,grupo:(e&&e.snap&&e.snap.grupo)||"—"}:null; }
+function perName(id,e){ const p=PERSONAL.find(x=>x.id===id); if(p) return p.nombre; return (e&&e.snap&&e.snap.per&&e.snap.per[id])||(id?"(sin catálogo)":"—"); }
+function perDoc(id){ const p=PERSONAL.find(x=>x.id===id); return p?p.documento||"":""; }
+function vehName(id,e){ const v=items("vehiculos").find(x=>x.id===id); if(v) return v.codigo+(v.placa?" · "+v.placa:""); return (e&&e.snap&&e.snap.veh&&e.snap.veh[id])||(id?"(sin catálogo)":"—"); }
+const LOW=new Set(["de","del","la","las","los","y"]);
+function titulo(s){ return String(s||"").replace(/\s+/g," ").trim().toLowerCase().split(" ").map((w,i)=>(i>0&&LOW.has(w))?w:w.charAt(0).toUpperCase()+w.slice(1)).join(" "); }
+
+/* ---------- validación ---------- */
+function validar(e,cerrar){
+  const E=[],W=[];
+  if(!e.aviso) E.push("Falta la fecha y hora del aviso.");
+  if(!e.tipo) E.push("Falta el tipo de emergencia.");
+  const seq=[["aviso","Aviso"],["salida","Salida"],["llegada","Llegada"],["controlado","Controlada"],["fin","Regreso"]];
+  for(let i=0;i<seq.length;i++) for(let j=i+1;j<seq.length;j++){
+    const a=e[seq[i][0]], b=e[seq[j][0]];
+    if(a&&b&&parseL(b)<parseL(a)) E.push(`«${seq[j][1]}» (${fmtDT(b)}) es anterior a «${seq[i][1]}» (${fmtDT(a)}).`);
+  }
+  if(e.aviso && parseL(e.aviso)>parseL(nowLocal())+5*60000) W.push("La fecha del aviso está en el futuro.");
+  const t=tiempos(e);
+  if(t.respuesta!=null&&t.respuesta>60) W.push(`Tiempo de respuesta de ${fmtMin(t.respuesta)}: confirme las horas.`);
+  if(t.total!=null&&t.total>24*60) W.push(`Duración total de ${fmtMin(t.total)} (más de 24 h): confirme las fechas.`);
+  const vs=(e.vehiculos||[]).filter(v=>v.v); const seen=new Set();
+  vs.forEach(v=>{ if(seen.has(v.v)) E.push(`El vehículo ${vehName(v.v,e)} está repetido.`); seen.add(v.v);
+    if(v.kmIni!=null&&v.kmFin!=null&&v.kmFin<v.kmIni) E.push(`Kilometraje final menor que el inicial en ${vehName(v.v,e)}.`);
+    if(v.kmIni!=null&&v.kmFin!=null&&v.kmFin-v.kmIni>500) W.push(`${vehName(v.v,e)} recorrió más de 500 km: confirme.`); });
+  (e.vehiculos||[]).forEach(v=>{ if(!v.v&&(v.conductor||v.kmIni!=null||v.kmFin!=null)) E.push("Hay una fila de vehículo con datos pero sin vehículo seleccionado."); });
+  Object.values(e.afect||{}).forEach(v=>{ if(v!=null&&v<0) E.push("Hay cantidades negativas en afectación."); });
+  if(e.coord && !/^\s*-?\d{1,2}(\.\d+)?\s*,\s*-?\d{1,3}(\.\d+)?\s*$/.test(e.coord)) W.push("Las coordenadas no tienen el formato «lat, long».");
+  if(cerrar){
+    if(!e.sector&&!e.direccion) E.push("Para cerrar: indique barrio/vereda o dirección.");
+    if(!e.salida) E.push("Para cerrar: falta la hora de salida.");
+    if(!e.llegada && e.tipo!=="FAL") E.push("Para cerrar: falta la hora de llegada al sitio.");
+    if(!e.fin) E.push("Para cerrar: falta la hora de regreso a la estación.");
+    if(!e.comandante) E.push("Para cerrar: falta el comandante u oficial a cargo.");
+    if(!vs.length && !(e.personal||[]).length) E.push("Para cerrar: registre al menos un vehículo o una persona.");
+    if(!(e.descripcion||"").trim()) E.push("Para cerrar: falta la situación encontrada.");
+    if(!(e.acciones||"").trim()) E.push("Para cerrar: faltan las acciones realizadas.");
+    vs.forEach(v=>{ if(!v.conductor) W.push(`Sin conductor registrado para ${vehName(v.v,e)}.`); if(v.kmIni==null||v.kmFin==null) W.push(`Sin kilometraje completo para ${vehName(v.v,e)}.`); });
+  }
+  return {E:[...new Set(E)],W:[...new Set(W)]};
+}
+
+/* ---------- UI general ---------- */
+function toast(msg){ const t=$("toast"); t.textContent=msg; t.hidden=false; clearTimeout(toast._t); toast._t=setTimeout(()=>t.hidden=true,4200); }
+function modal({title,text,label,need,yes}){ return new Promise(res=>{
+  $("mTitle").textContent=title; $("mText").textContent=text||""; $("mFieldWrap").hidden=!label; $("mLabel").textContent=label||""; $("mInput").value=""; $("mYes").textContent=yes||"Confirmar"; $("modal").hidden=false; if(label) setTimeout(()=>$("mInput").focus(),30);
+  const done=v=>{ $("modal").hidden=true; $("mYes").onclick=$("mNo").onclick=null; res(v); };
+  $("mNo").onclick=()=>done(null);
+  $("mYes").onclick=()=>{ const v=$("mInput").value.trim(); if(label&&need&&v.length<need){ $("mText").textContent=`Escriba al menos ${need} caracteres.`; return; } done(label?v:true); };
+});}
+function screen(id){ ["gCfg","gLogin","gPending","app"].forEach(s=>$(s).hidden=s!==id); }
+function setTab(t){ TAB=t; document.querySelectorAll("#tabs button").forEach(b=>b.setAttribute("aria-selected",b.dataset.tab===t)); document.querySelectorAll("[data-panel]").forEach(p=>p.hidden=p.dataset.panel!==t); render(); window.scrollTo(0,0); }
+$("tabs").addEventListener("click",ev=>{ const b=ev.target.closest("button[data-tab]"); if(!b) return; if(b.dataset.tab==="form"&&TAB!=="form"&&!EDIT_ID) openForm(null); else setTab(b.dataset.tab); });
+function sync(state,msg){ const p=$("syncPill"); p.className="pill "+(state==="ok"?"sync-ok":state==="err"?"sync-err":"sync-wait"); p.textContent=msg; }
+function render(){ applyRole(); if(TAB==="lista") (DETAIL?renderDetail():renderList()); else if(TAB==="resumen") renderResumen(); else if(TAB==="cat") renderCat(); else if(TAB==="users") renderUsers(); else if(TAB==="hist") renderHist(); }
+function applyRole(){
+  $("rolePill").hidden=false; $("rolePill").textContent=ROL_LBL[ROLE]||ROLE;
+  $("tabForm").hidden=!canWrite(); $("btnNew").hidden=!canWrite(); $("tabUsers").hidden=!isAdmin();
+  const g=CFG.general||{}; $("instName").textContent=(g.institucion||"Registro de emergencias atendidas")+(g.municipio?" · "+g.municipio:"");
+}
+function errMsg(err){
+  const c=(err&&err.code)||"";
+  if(c==="permission-denied"||c==="firestore/permission-denied") return "La operación no está permitida para su usuario o el reporte cambió de estado.";
+  if(c==="unavailable") return "Sin conexión con el servidor. Revise internet e intente de nuevo.";
+  if(c==="conflict") return err.message;
+  const m={"auth/invalid-credential":"Correo o contraseña incorrectos.","auth/wrong-password":"Correo o contraseña incorrectos.","auth/user-not-found":"Correo o contraseña incorrectos.","auth/invalid-email":"El correo no es válido.","auth/too-many-requests":"Demasiados intentos. Espere unos minutos.","auth/email-already-in-use":"Ya existe una cuenta con ese correo.","auth/weak-password":"La contraseña debe tener al menos 6 caracteres.","auth/network-request-failed":"Sin conexión a internet."};
+  return m[c]||("Error: "+((err&&err.message)||c||"desconocido"));
+}
+function download(name,data,type){ const blob=data instanceof Blob?data:new Blob([data],{type}); const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=name; document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },1500); }
+
+/* ---------- acceso ---------- */
+function boot(){
+  if(!FIREBASE_CONFIG.apiKey||FIREBASE_CONFIG.apiKey==="PEGAR_AQUI"||typeof firebase==="undefined"){ screen("gCfg"); sync("err","Sin configurar"); return; }
+  fb=firebase.initializeApp(FIREBASE_CONFIG); auth=firebase.auth(); db=firebase.firestore(); FV=firebase.firestore.FieldValue;
+  try{ db.enablePersistence({synchronizeTabs:true}).catch(()=>{}); }catch(_){}
+  auth.onAuthStateChanged(onUser);
+}
+$("loginForm").addEventListener("submit",async ev=>{ ev.preventDefault(); $("lErr").textContent=""; $("lBtn").disabled=true;
+  try{ await auth.signInWithEmailAndPassword($("lEmail").value.trim(),$("lPass").value); }catch(e){ $("lErr").textContent=errMsg(e); } finally{ $("lBtn").disabled=false; } });
+$("lReset").onclick=async()=>{ const em=$("lEmail").value.trim(); if(!em){ $("lErr").textContent="Escriba su correo y vuelva a tocar «¿Olvidó su contraseña?»."; return; }
+  try{ await auth.sendPasswordResetEmail(em); $("lErr").textContent=""; toast("Si el correo está registrado, le llegará un enlace para crear una nueva contraseña. Revise también correo no deseado."); }catch(e){ $("lErr").textContent=errMsg(e); } };
+$("btnLogout").onclick=$("pLogout").onclick=()=>auth.signOut();
+
+async function onUser(user){
+  UNSUB.forEach(f=>{ try{f();}catch(_){} }); UNSUB=[]; EMERG=[]; PERSONAL=[]; AUD=[]; USERS=[]; emLoaded=false; DETAIL=null; EDIT_ID=null;
+  if(!user){ UID=null; MYDOC=null; $("userBox").hidden=true; $("rolePill").hidden=true; screen("gLogin"); sync("wait","Sin sesión"); return; }
+  UID=user.uid; $("userBox").hidden=false; $("userName").textContent=user.email; sync("wait","Conectando");
+  const unsubMe=db.collection("usuarios").doc(UID).onSnapshot(async s=>{
+    MYDOC=s.exists?s.data():null;
+    if(!MYDOC){ await showPending(user); return; }
+    if(MYDOC.activo!==true){ showMsg("Usuario desactivado","Su usuario fue desactivado. Comuníquese con el administrador del cuerpo de bomberos."); return; }
+    const changed=ROLE!==MYDOC.rol; ROLE=MYDOC.rol; $("userName").textContent=MYDOC.nombre||user.email;
+    if($("app").hidden){ screen("app"); startData(); setTab("lista"); } else if(changed){ startData(); render(); }
+  }, e=>{ showMsg("Sin acceso",errMsg(e)); });
+  UNSUB.push(unsubMe);
+}
+function showMsg(t,txt){ screen("gPending"); $("pTitle").textContent=t; $("pText").textContent=txt; $("bootBox").hidden=true; sync("err","Sin acceso"); }
+async function showPending(user){
+  let init=true; try{ init=(await db.collection("sistema").doc("init").get()).exists; }catch(_){}
+  if(init){ showMsg("Usuario no habilitado",`La cuenta ${user.email} existe, pero el administrador todavía no la ha habilitado en la herramienta. Pídale que lo registre en la pestaña «Usuarios».`); return; }
+  screen("gPending"); $("pTitle").textContent="Primer ingreso"; $("pText").textContent=`Aún no hay administrador. ${user.email} quedará como administrador principal y se cargarán los catálogos iniciales (datos generales, tipos de emergencia y vehículos).`; $("bootBox").hidden=false; sync("wait","Configuración inicial");
+}
+$("bBtn").onclick=async()=>{
+  const nombre=titulo($("bNombre").value); if(nombre.length<5){ $("bErr").textContent="Escriba su nombre completo."; return; }
+  $("bBtn").disabled=true; $("bErr").textContent="";
+  try{
+    const b=db.batch();
+    b.set(db.collection("usuarios").doc(UID),{email:auth.currentUser.email,nombre,rol:"admin",activo:true,creadoEn:sts()});
+    b.set(db.collection("sistema").doc("init"),{adminUid:UID,ts:sts()});
+    await b.commit();
+    const b2=db.batch();
+    b2.set(db.collection("cfg").doc("general"),{...GENERAL_INICIAL,actualizadoEn:sts(),actualizadoPor:UID});
+    b2.set(db.collection("cfg").doc("tipos"),{items:TIPOS_SUGERIDOS.map(([codigo,nombre,grupo])=>({codigo,nombre,grupo,activo:true})),actualizadoEn:sts(),actualizadoPor:UID});
+    b2.set(db.collection("cfg").doc("vehiculos"),{items:VEHICULOS_INICIALES.map(([codigo,tipo])=>({id:uid("v_"),codigo,tipo,placa:"",activo:true})),actualizadoEn:sts(),actualizadoPor:UID});
+    b2.set(db.collection("cfg").doc("sectores"),{items:[],actualizadoEn:sts(),actualizadoPor:UID});
+    b2.set(db.collection("auditoria_admin").doc(),{uid:UID,ts:sts(),accion:"Configuración inicial",detalle:"Primer administrador y catálogos iniciales"});
+    await b2.commit();
+    toast("Configuración inicial lista. Importe el personal en «Catálogos».");
+  }catch(e){ $("bErr").textContent=errMsg(e); $("bBtn").disabled=false; }
+};
+
+function startData(){
+  UNSUB.slice(1).forEach(f=>{ try{f();}catch(_){} }); UNSUB=UNSUB.slice(0,1);
+  const fail=e=>{ sync("err","Error de conexión"); $("dbBanner").hidden=false; $("dbBanner").textContent=errMsg(e); };
+  UNSUB.push(db.collection("cfg").onSnapshot(s=>{ s.docs.forEach(d=>CFG[d.id]=d.data()); fillTipoFilter(); sync("ok","Sincronizado"); if(TAB!=="form"&&!(TAB==="cat"&&Object.keys(CAT_DRAFT).length)) render(); },fail));
+  UNSUB.push(db.collection("personal").onSnapshot(s=>{ PERSONAL=s.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.nombre||"").localeCompare(b.nombre||"","es")); if(TAB!=="form"&&!(TAB==="cat"&&(CAT_DRAFT.personal||IMPORT))) render(); },fail));
+  UNSUB.push(db.collection("emergencias").orderBy("aviso","desc").limit(1000).onSnapshot(s=>{ EMERG=s.docs.map(d=>({id:d.id,...d.data({serverTimestamps:"estimate"})})); LIMIT_HIT=s.size>=1000; emLoaded=true; sync(s.metadata.fromCache?"wait":"ok",s.metadata.fromCache?"Sin conexión (datos guardados)":"Sincronizado"); if(TAB!=="form"&&TAB!=="cat"&&TAB!=="users") render(); },fail));
+  UNSUB.push(db.collection("auditoria").orderBy("ts","desc").limit(1000).onSnapshot(s=>{ AUD=s.docs.map(d=>({id:d.id,...d.data({serverTimestamps:"estimate"})})); if(TAB==="hist"||(TAB==="lista"&&DETAIL)) render(); },()=>{}));
+  if(isAdmin()) UNSUB.push(db.collection("usuarios").onSnapshot(s=>{ USERS=s.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.nombre||"").localeCompare(b.nombre||"","es")); if(TAB==="users") renderUsers(); },()=>{}));
+}
+
+/* ---------- listado ---------- */
+function filtrados(){
+  const q=$("q").value.trim().toLowerCase(), est=$("fEstado").value, tp=$("fTipo").value, d1=$("fDesde").value, d2=$("fHasta").value;
+  return EMERG.filter(e=>{
+    if(est&&e.estado!==est) return false;
+    if(tp){ if(tp.startsWith("g:")){ const t=tipoOf(e.tipo,e); if(!t||t.grupo!==tp.slice(2)) return false; } else if(e.tipo!==tp) return false; }
+    const d=(e.aviso||"").slice(0,10);
+    if(d1&&d<d1) return false; if(d2&&d>d2) return false;
+    if(q){ const h=[e.numero,e.direccion,e.sector,e.tipoDetalle,e.referencia,(tipoOf(e.tipo,e)||{}).nombre].join(" ").toLowerCase(); if(!h.includes(q)) return false; }
+    return true;
+  });
+}
+function fillTipoFilter(){
+  const sel=$("fTipo"), cur=sel.value; const ts=items("tipos"); const groups=[...new Set(ts.map(t=>t.grupo))];
+  sel.innerHTML='<option value="">Todos</option>'+groups.map(g=>`<optgroup label="${esc(g)}"><option value="g:${esc(g)}">Todo: ${esc(g)}</option>${ts.filter(t=>t.grupo===g).map(t=>`<option value="${esc(t.codigo)}">${esc(t.nombre)}</option>`).join("")}</optgroup>`).join("");
+  sel.value=cur;
+}
+function renderList(){
+  $("listView").hidden=false; $("detView").hidden=true;
+  if(!emLoaded) return;
+  const L=filtrados(); const w=$("listWrap");
+  const dupNums={}; EMERG.forEach(e=>{ if(e.numero) dupNums[e.numero]=(dupNums[e.numero]||0)+1; });
+  if(!EMERG.length){ w.innerHTML=`<div class="empty"><b>Aún no hay emergencias registradas</b>${canWrite()?'Use «Nuevo reporte» para registrar la primera. El número consecutivo se asigna al guardar (AAAA-0001).':'Cuando el personal registre emergencias aparecerán aquí.'}</div>`; $("listFoot").textContent=""; return; }
+  if(!L.length){ w.innerHTML='<div class="empty"><b>Ningún reporte coincide</b>Ajuste los filtros.</div>'; }
+  else w.innerHTML=`<table class="t"><thead><tr><th>N°</th><th>Aviso</th><th>Tipo</th><th>Ubicación</th><th class="r">Respuesta</th><th>Comandante</th><th>Estado</th></tr></thead><tbody>${L.map(e=>{
+    const t=tipoOf(e.tipo,e), tm=tiempos(e); const v=e.estado==="anulada"?{E:[],W:[]}:validar(e,e.estado==="cerrada");
+    const flag=(dupNums[e.numero]>1?'<div class="flag">Número duplicado</div>':'')+(v.E.length?`<div class="flag">${v.E.length} inconsistencia(s)</div>`:'');
+    return `<tr class="click ${e.estado==="anulada"?"anulada":""}" data-id="${esc(e.id)}"><td class="mono">${esc(e.numero||"—")}</td><td class="mono">${esc(fmtDT(e.aviso))}</td><td>${esc(t?t.nombre:"—")}${e.tipoDetalle?`<div class="note" style="margin:0">${esc(e.tipoDetalle)}</div>`:""}</td><td>${esc([e.sector,e.direccion].filter(Boolean).join(" · ")||"—")}</td><td class="r mono">${esc(fmtMin(tm.respuesta))}</td><td>${esc(e.comandante?perName(e.comandante,e):"—")}</td><td><span class="chip st-${e.estado}">${EST_LBL[e.estado]||e.estado}</span>${flag}</td></tr>`;}).join("")}</tbody></table>`;
+  const c={abierta:0,cerrada:0,anulada:0}; L.forEach(e=>c[e.estado]=(c[e.estado]||0)+1);
+  $("listFoot").textContent=`${L.length} de ${EMERG.length} reportes · ${c.abierta} abiertos · ${c.cerrada} cerrados · ${c.anulada} anulados`+(LIMIT_HIT?" · Se muestran los 1.000 avisos más recientes.":"");
+}
+$("listWrap").addEventListener("click",ev=>{ const tr=ev.target.closest("tr[data-id]"); if(tr){ DETAIL=tr.dataset.id; renderDetail(); window.scrollTo(0,0);} });
+["q","fEstado","fTipo","fDesde","fHasta"].forEach(id=>$(id).addEventListener("input",()=>renderList()));
+$("btnNew").onclick=()=>openForm(null);
+
+/* ---------- ficha ---------- */
+function fichaHTML(e){
+  const t=tipoOf(e.tipo,e), tm=tiempos(e), a=e.afect||{};
+  const kv=(l,v)=>`<div><dt>${esc(l)}</dt><dd>${v}</dd></div>`;
+  const vs=(e.vehiculos||[]).filter(v=>v.v);
+  return `
+  <div class="ficha-h"><span class="n mono">${esc(e.numero||"Sin número")}</span><span class="chip st-${e.estado}">${EST_LBL[e.estado]}</span><span class="tp">${esc(t?t.nombre:"—")}</span><span class="note" style="margin:0">${esc(t?t.grupo:"")}</span></div>
+  ${e.estado==="anulada"&&e.anulacion?`<div class="banner"><b>Reporte anulado</b> el ${esc(fmtTS(e.anulacion.ts))}. Motivo: ${esc(e.anulacion.motivo)}</div>`:""}
+  <dl class="kv">
+    ${kv("Aviso",`<span class="mono">${esc(fmtDT(e.aviso))}</span>`)}${kv("Medio de aviso",esc(e.medio||"—"))}
+    ${kv("Quién reporta",esc([e.reportaNombre,e.reportaTel].filter(Boolean).join(" · ")||"—"))}${kv("Recibido por",esc(e.recibe?perName(e.recibe,e):"—"))}
+    ${kv("Detalle",esc(e.tipoDetalle||"—"))}${kv("Zona",esc(e.zona||"—"))}
+    ${kv("Barrio / vereda",esc(e.sector||"—"))}${kv("Dirección",esc(e.direccion||"—"))}
+    ${kv("Referencia",esc(e.referencia||"—"))}${kv("Coordenadas",esc(e.coord||"—"))}${kv("Municipio",esc(e.municipio||"—"))}
+  </dl>
+  <div class="fsec"><h3>Tiempos</h3><dl class="kv">
+    ${kv("Salida",`<span class="mono">${esc(fmtDT(e.salida))}</span>`)}${kv("Llegada",`<span class="mono">${esc(fmtDT(e.llegada))}</span>`)}
+    ${kv("Controlada",`<span class="mono">${esc(fmtDT(e.controlado))}</span>`)}${kv("Regreso",`<span class="mono">${esc(fmtDT(e.fin))}</span>`)}
+    ${kv("Tiempo de despacho",`<b class="mono">${fmtMin(tm.despacho)}</b>`)}${kv("Tiempo de respuesta",`<b class="mono">${fmtMin(tm.respuesta)}</b>`)}
+    ${kv("Atención en sitio",`<b class="mono">${fmtMin(tm.atencion)}</b>`)}${kv("Duración total",`<b class="mono">${fmtMin(tm.total)}</b>`)}
+  </dl></div>
+  <div class="fsec"><h3>Recursos</h3><dl class="kv">${kv("Comandante / oficial a cargo",esc(e.comandante?perName(e.comandante,e):"—"))}</dl>
+    ${vs.length?`<div class="scroll" style="margin-top:8px"><table class="t"><thead><tr><th>Vehículo</th><th>Conductor</th><th class="r">Km inicial</th><th class="r">Km final</th><th class="r">Recorrido</th></tr></thead><tbody>${vs.map(v=>`<tr><td>${esc(vehName(v.v,e))}</td><td>${esc(v.conductor?perName(v.conductor,e):"—")}</td><td class="r mono">${v.kmIni??"—"}</td><td class="r mono">${v.kmFin??"—"}</td><td class="r mono">${v.kmIni!=null&&v.kmFin!=null?v.kmFin-v.kmIni:"—"}</td></tr>`).join("")}</tbody></table></div>`:'<p class="note">Sin vehículos registrados.</p>'}
+    <p style="margin:10px 0 0"><b>Personal (${(e.personal||[]).length}):</b> ${esc((e.personal||[]).map(p=>perName(p,e)).join(", ")||"—")}${e.personalOtro?` · <b>Otros:</b> ${esc(e.personalOtro)}`:""}</p>
+  </div>
+  <div class="fsec"><h3>Afectación y consumos</h3><dl class="kv">${AFECT.map(([k,l])=>kv(l,`<span class="mono">${a[k]??"—"}</span>`)).join("")}${kv("Agua (gal)",`<span class="mono">${e.agua??"—"}</span>`)}${kv("Espuma (gal)",`<span class="mono">${e.espuma??"—"}</span>`)}</dl></div>
+  <div class="fsec"><h3>Entidades de apoyo</h3><p style="margin:0">${esc([...(e.entidades||[]),e.entidadOtra].filter(Boolean).join(", ")||"Ninguna")}</p></div>
+  <div class="fsec"><h3>Situación encontrada</h3><p class="txt">${esc(e.descripcion||"—")}</p></div>
+  <div class="fsec"><h3>Acciones realizadas</h3><p class="txt">${esc(e.acciones||"—")}</p></div>
+  <div class="fsec"><h3>Observaciones y recomendaciones</h3><p class="txt">${esc(e.observaciones||"—")}</p></div>`;
+}
+function renderDetail(){
+  const e=EMERG.find(x=>x.id===DETAIL); const d=$("detView");
+  if(!e){ DETAIL=null; renderList(); return; }
+  $("listView").hidden=true; d.hidden=false;
+  const v=e.estado==="anulada"?{E:[],W:[]}:validar(e,e.estado==="cerrada");
+  const btn=['<button class="btn ghost" data-a="back">← Volver al listado</button><span class="grow"></span>','<button class="btn" data-a="print">Imprimir</button>','<button class="btn" data-a="inf">Descargar informe</button>'];
+  if(e.estado==="abierta"&&canWrite()) btn.push('<button class="btn" data-a="edit">Editar</button><button class="btn primary" data-a="close">Cerrar reporte</button>');
+  if(e.estado==="cerrada"&&isAdmin()) btn.push('<button class="btn" data-a="edit">Editar</button><button class="btn" data-a="reopen">Reabrir</button>');
+  if(e.estado!=="anulada"&&isAdmin()) btn.push('<button class="btn" data-a="void">Anular</button>');
+  const au=AUD.filter(x=>x.emergenciaId===e.id);
+  d.innerHTML=`<div class="bar" style="margin-bottom:12px">${btn.join("")}</div>
+   ${(v.E.length||v.W.length)?`<div class="val" style="margin-bottom:12px">${v.E.length?`<b class="e">Inconsistencias</b><ul class="e">${v.E.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>`:""}${v.W.length?`<b class="w">Advertencias</b><ul class="w">${v.W.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>`:""}</div>`:""}
+   <div class="card">${fichaHTML(e)}
+   <div class="fsec"><h3>Trazabilidad</h3><ul class="audit" id="audList">${au.map(x=>`<li><span class="when">${esc(fmtTS(x.ts))}</span><b>${esc(x.accion)}</b><span>${esc(x.nombre||"")}</span><span class="note" style="margin:0">${esc(x.detalle||"")}</span></li>`).join("")||'<li class="note">Cargando…</li>'}</ul></div></div>`;
+  if(!au.length) db.collection("auditoria").where("emergenciaId","==",e.id).get().then(s=>{ const ul=$("audList"); if(!ul||DETAIL!==e.id) return; const r=s.docs.map(x=>x.data({serverTimestamps:"estimate"})).sort((a,b)=>(toDate(b.ts)||0)-(toDate(a.ts)||0)); ul.innerHTML=r.map(x=>`<li><span class="when">${esc(fmtTS(x.ts))}</span><b>${esc(x.accion)}</b><span>${esc(x.nombre||"")}</span><span class="note" style="margin:0">${esc(x.detalle||"")}</span></li>`).join("")||'<li class="note">Sin registros.</li>'; }).catch(()=>{});
+}
+$("detView").addEventListener("click",async ev=>{
+  const b=ev.target.closest("button[data-a]"); if(!b) return; const e=EMERG.find(x=>x.id===DETAIL); if(!e) return;
+  const a=b.dataset.a;
+  if(a==="back"){ DETAIL=null; renderList(); }
+  else if(a==="edit"){ openForm(e); }
+  else if(a==="inf"){ download(`Informe_emergencia_${e.numero||e.id}.html`,informeHTML(e),"text/html"); }
+  else if(a==="print"){ const w=window.open("","_blank"); if(!w){ toast("El navegador bloqueó la ventana. Use «Descargar informe»."); return; } w.document.write(informeHTML(e)); w.document.close(); w.focus(); setTimeout(()=>w.print(),400); }
+  else if(a==="close"){ const v=validar(e,true); if(v.E.length){ toast("No se puede cerrar: corrija las inconsistencias con «Editar»."); return; }
+    const ok=await modal({title:"Cerrar reporte "+e.numero,text:"Un reporte cerrado solo puede modificarlo un administrador.",yes:"Cerrar reporte"}); if(!ok) return;
+    await cambiarEstado(e,"cerrada","Cierre",""); }
+  else if(a==="reopen"){ const m=await modal({title:"Reabrir "+e.numero,text:"Quedará registrado en la trazabilidad.",label:"Motivo de la reapertura",need:10,yes:"Reabrir"}); if(m==null) return; await cambiarEstado(e,"abierta","Reapertura",m); }
+  else if(a==="void"){ const m=await modal({title:"Anular "+e.numero,text:"El reporte no se borra: queda marcado como anulado, se excluye de los resúmenes y su número no se reutiliza. No se puede deshacer.",label:"Motivo de la anulación",need:10,yes:"Anular reporte"}); if(m==null) return; await cambiarEstado(e,"anulada","Anulación",m); }
+});
+function audDoc(tx,e,numero,accion,detalle){ tx.set(db.collection("auditoria").doc(),{emergenciaId:e,numero,accion,detalle,uid:UID,nombre:MYDOC.nombre,ts:sts()}); }
+async function cambiarEstado(e,estado,accion,motivo){
+  try{
+    const ref=db.collection("emergencias").doc(e.id);
+    await db.runTransaction(async tx=>{
+      const s=await tx.get(ref); if(!s.exists) throw {code:"conflict",message:"El reporte ya no existe."};
+      const cur=s.data(); if(cur.version!==e.version) throw {code:"conflict",message:"Otro usuario modificó el reporte. Revise los cambios e intente de nuevo."};
+      const up={estado,version:cur.version+1,actualizadoEn:sts(),actualizadoPor:UID};
+      if(estado==="cerrada"){ up.cerradoEn=sts(); up.cerradoPor=UID; }
+      if(estado==="anulada"){ up.anulacion={motivo,ts:sts(),uid:UID}; }
+      tx.update(ref,up); audDoc(tx,e.id,cur.numero,accion,motivo?("Motivo: "+motivo):"");
+    });
+    toast(accion+" registrada.");
+  }catch(err){ toast(errMsg(err)); }
+}
+function informeHTML(e){
+  const g=CFG.general||{};
+  const css=`body{font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#111;margin:24px;max-width:900px}h1{font-size:18px;margin:0}h3{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#555;margin:0 0 6px}.ficha-h{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin:12px 0}.ficha-h .n{font-size:22px;font-weight:bold}.chip{border:1px solid #333;border-radius:10px;padding:1px 8px;font-size:11px}.kv{display:grid;grid-template-columns:repeat(3,1fr);gap:8px 16px;margin:0}.kv dt{font-size:10px;text-transform:uppercase;color:#666}.kv dd{margin:0}.fsec{border-top:1px solid #bbb;padding-top:8px;margin-top:10px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #bbb;padding:4px 6px;text-align:left}.txt{white-space:pre-wrap;margin:0}.banner{border:1px solid #a00;padding:6px}.note{color:#666}.firmas{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:60px}.firmas div{border-top:1px solid #000;padding-top:4px;text-align:center}@media print{body{margin:0}}`;
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Informe ${esc(e.numero)}</title><style>${css}</style></head><body><h1>${esc(g.institucion||"Cuerpo de Bomberos")}</h1><div class="note">${esc([g.municipio,g.departamento].filter(Boolean).join(" · "))} — Informe de emergencia atendida</div>${fichaHTML(e)}<div class="firmas"><div>${esc(e.comandante?perName(e.comandante,e):"")}<br>Comandante / oficial a cargo</div><div>Revisó</div></div><p class="note" style="margin-top:24px">Generado el ${esc(fmtTS(new Date()))} por ${esc(MYDOC&&MYDOC.nombre||"")}. Última modificación del reporte: ${esc(fmtTS(e.actualizadoEn))} (versión ${e.version||1}).</p></body></html>`;
+}
+
+/* ---------- formulario ---------- */
+const FIELDS={aviso:"f_aviso",medio:"f_medio",reportaNombre:"f_repNom",reportaTel:"f_repTel",recibe:"f_recibe",tipo:"f_tipo",tipoDetalle:"f_tipoDet",zona:"f_zona",sector:"f_sector",direccion:"f_dir",referencia:"f_ref",coord:"f_coord",municipio:"f_mun",salida:"f_salida",llegada:"f_llegada",controlado:"f_control",fin:"f_fin",comandante:"f_cmd",personalOtro:"f_pOtro",entidadOtra:"f_eOtra",descripcion:"f_desc",acciones:"f_acc",observaciones:"f_obs"};
+const NUMS={les:"f_les",fal:"f_fal",res:"f_res",eva:"f_eva",fam:"f_fam",viv:"f_viv",area:"f_area"};
+const LABELS={aviso:"aviso",medio:"medio",reportaNombre:"quién reporta",reportaTel:"teléfono",recibe:"recibido por",tipo:"tipo",tipoDetalle:"detalle",zona:"zona",sector:"barrio/vereda",direccion:"dirección",referencia:"referencia",coord:"coordenadas",municipio:"municipio",salida:"salida",llegada:"llegada",controlado:"controlada",fin:"regreso",comandante:"comandante",personalOtro:"otro personal",entidadOtra:"otra entidad",descripcion:"situación",acciones:"acciones",observaciones:"observaciones",vehiculos:"vehículos",personal:"personal",entidades:"entidades",afect:"afectación",agua:"agua",espuma:"espuma"};
+const numOrNull=v=>{ if(v===""||v==null) return null; const n=Number(v); return isFinite(n)?n:null; };
+function perOptions(sel,cur){ const ps=PERSONAL.filter(p=>p.activo!==false||p.id===cur); sel.innerHTML='<option value="">—</option>'+ps.map(p=>`<option value="${esc(p.id)}">${esc(p.nombre)}${p.cargo?" · "+esc(p.cargo):""}</option>`).join(""); if(cur&&!ps.some(p=>p.id===cur)) sel.insertAdjacentHTML("beforeend",`<option value="${esc(cur)}">${esc(perName(cur,EDIT_DOC))}</option>`); sel.value=cur||""; }
+function buildFormOptions(e){
+  $("f_medio").innerHTML='<option value="">—</option>'+MEDIOS.map(m=>`<option>${esc(m)}</option>`).join("");
+  const ts=items("tipos").filter(t=>t.activo!==false||t.codigo===(e&&e.tipo)); const groups=[...new Set(ts.map(t=>t.grupo))];
+  $("f_tipo").innerHTML='<option value="">Seleccione…</option>'+groups.map(g=>`<optgroup label="${esc(g)}">${ts.filter(t=>t.grupo===g).map(t=>`<option value="${esc(t.codigo)}">${esc(t.nombre)}</option>`).join("")}</optgroup>`).join("");
+  if(e&&e.tipo&&!ts.some(t=>t.codigo===e.tipo)) $("f_tipo").insertAdjacentHTML("beforeend",`<option value="${esc(e.tipo)}">${esc(tipoOf(e.tipo,e).nombre)}</option>`);
+  $("dlSector").innerHTML=items("sectores").filter(s=>s.activo!==false).map(s=>`<option value="${esc(s.nombre)}">${esc(s.zona||"")}</option>`).join("");
+  perOptions($("f_recibe"),e&&e.recibe); perOptions($("f_cmd"),e&&e.comandante);
+  const sel=new Set((e&&e.personal)||[]); const ps=PERSONAL.filter(p=>p.activo!==false||sel.has(p.id));
+  $("pChecks").innerHTML=ps.length?ps.map(p=>`<label><input type="checkbox" value="${esc(p.id)}" ${sel.has(p.id)?"checked":""}><span>${esc(p.nombre)}<br><small>${esc([p.cargo,p.documento].filter(Boolean).join(" · "))}</small></span></label>`).join(""):'<p class="note">No hay personal en el catálogo. Un administrador debe registrarlo en «Catálogos».</p>';
+  [...sel].filter(id=>!ps.some(p=>p.id===id)).forEach(id=>$("pChecks").insertAdjacentHTML("beforeend",`<label><input type="checkbox" value="${esc(id)}" checked><span>${esc(perName(id,e))}</span></label>`));
+  const es=new Set((e&&e.entidades)||[]);
+  $("eChecks").innerHTML=ENTIDADES.map(n=>`<label><input type="checkbox" value="${esc(n)}" ${es.has(n)?"checked":""}><span>${esc(n)}</span></label>`).join("");
+}
+function renderVRows(){
+  const vs=items("vehiculos");
+  $("vRows").innerHTML=VROWS.length?VROWS.map((r,i)=>{
+    const opts=vs.filter(v=>v.activo!==false||v.id===r.v);
+    const vOpt='<option value="">Vehículo…</option>'+opts.map(v=>`<option value="${esc(v.id)}" ${v.id===r.v?"selected":""}>${esc(v.codigo)}${v.tipo?" · "+esc(v.tipo):""}${v.placa?" · "+esc(v.placa):""}</option>`).join("")+(r.v&&!opts.some(v=>v.id===r.v)?`<option value="${esc(r.v)}" selected>${esc(vehName(r.v,EDIT_DOC))}</option>`:"");
+    const ps=PERSONAL.filter(p=>p.activo!==false||p.id===r.conductor);
+    const cOpt='<option value="">Conductor…</option>'+ps.map(p=>`<option value="${esc(p.id)}" ${p.id===r.conductor?"selected":""}>${esc(p.nombre)}</option>`).join("");
+    const rec=(r.kmIni!=null&&r.kmFin!=null)?(r.kmFin-r.kmIni):null;
+    return `<div class="vrow" data-i="${i}"><label class="f"><span>Vehículo</span><select data-k="v">${vOpt}</select></label><label class="f"><span>Conductor</span><select data-k="conductor">${cOpt}</select></label><label class="f km"><span>Km inicial</span><input type="number" min="0" step="any" data-k="kmIni" value="${r.kmIni??""}"></label><label class="f km"><span>Km final</span><input type="number" min="0" step="any" data-k="kmFin" value="${r.kmFin??""}"></label><div class="f"><span>Recorrido</span><div class="kmr">${rec==null?"—":rec+" km"}</div></div><button type="button" class="btn ghost" data-rm="${i}" aria-label="Quitar vehículo">Quitar</button></div>`;}).join(""):'<p class="note">Sin vehículos. '+(vs.length?"":"El catálogo de vehículos está vacío.")+'</p>';
+}
+$("vRows").addEventListener("input",ev=>{ const row=ev.target.closest(".vrow"); const k=ev.target.dataset.k; if(!row||!k) return; const r=VROWS[+row.dataset.i]; r[k]=(k==="kmIni"||k==="kmFin")?numOrNull(ev.target.value):ev.target.value; if(k==="kmIni"||k==="kmFin"){ const rec=(r.kmIni!=null&&r.kmFin!=null)?r.kmFin-r.kmIni:null; row.querySelector(".kmr").textContent=rec==null?"—":rec+" km"; } liveVal(); });
+$("vRows").addEventListener("click",ev=>{ const b=ev.target.closest("[data-rm]"); if(!b) return; VROWS.splice(+b.dataset.rm,1); renderVRows(); liveVal(); });
+$("addV").onclick=()=>{ VROWS.push({v:"",conductor:"",kmIni:null,kmFin:null}); renderVRows(); };
+
+function openForm(e){
+  if(!canWrite()){ toast("Su usuario es de consulta."); return; }
+  if(e&&e.estado!=="abierta"&&!isAdmin()){ toast("Solo un administrador puede modificar un reporte cerrado."); return; }
+  if(e&&e.estado==="anulada"){ toast("Un reporte anulado no se puede editar."); return; }
+  EDIT_ID=e?e.id:null; EDIT_BASE=e?e.version:null; EDIT_DOC=e||null;
+  buildFormOptions(e);
+  for(const [k,id] of Object.entries(FIELDS)) $(id).value=(e&&e[k])??"";
+  for(const [k,id] of Object.entries(NUMS)) $(id).value=(e&&e.afect&&e.afect[k])??"";
+  $("f_agua").value=(e&&e.agua)??""; $("f_esp").value=(e&&e.espuma)??"";
+  if(!e){ $("f_aviso").value=nowLocal(); $("f_mun").value=(CFG.general&&CFG.general.municipio)||""; }
+  VROWS=e&&e.vehiculos?e.vehiculos.map(v=>({...v})):[]; renderVRows();
+  $("formTitle").textContent=e?("Editar reporte "+(e.numero||"")):"Nuevo reporte de emergencia";
+  $("formSub").textContent=e?("Estado: "+EST_LBL[e.estado]+" · última modificación "+fmtTS(e.actualizadoEn)):"El número consecutivo se asigna al guardar.";
+  $("btnSave").textContent=e&&e.estado==="cerrada"?"Guardar cambios":"Guardar abierta";
+  $("btnSaveClose").hidden=!!(e&&e.estado==="cerrada");
+  setTab("form"); liveVal();
+}
+function readForm(){
+  const d={};
+  for(const [k,id] of Object.entries(FIELDS)) d[k]=$(id).value.trim();
+  d.afect={}; for(const [k,id] of Object.entries(NUMS)) d.afect[k]=numOrNull($(id).value);
+  d.agua=numOrNull($("f_agua").value); d.espuma=numOrNull($("f_esp").value);
+  d.personal=[...$("pChecks").querySelectorAll("input:checked")].map(i=>i.value);
+  d.entidades=[...$("eChecks").querySelectorAll("input:checked")].map(i=>i.value);
+  d.vehiculos=VROWS.map(r=>({v:r.v||"",conductor:r.conductor||"",kmIni:r.kmIni??null,kmFin:r.kmFin??null})).filter(r=>r.v||r.conductor||r.kmIni!=null||r.kmFin!=null);
+  return d;
+}
+function liveVal(){
+  if(TAB!=="form") return;
+  const d=readForm(); const t=tiempos(d);
+  $("timesBox").innerHTML=[["Despacho",t.despacho,"aviso → salida"],["Respuesta",t.respuesta,"aviso → llegada"],["Atención en sitio",t.atencion,"llegada → regreso"],["Total",t.total,"aviso → regreso"]].map(([l,m,h])=>`<div class="tm" title="${h}"><span>${l}</span><b>${fmtMin(m)}</b></div>`).join("");
+  const v=validar(d,false); const vc=validar(d,true);
+  const pend=vc.E.filter(x=>!v.E.includes(x));
+  $("valBox").innerHTML=(v.E.length?`<b class="e">Debe corregir antes de guardar</b><ul class="e">${v.E.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>`:'<b style="color:var(--ok)">Sin errores para guardar como abierta.</b>')+
+    (pend.length?`<div style="margin-top:6px"><b>Pendiente para cerrar</b><ul>${pend.map(x=>`<li>${esc(x.replace("Para cerrar: ",""))}</li>`).join("")}</ul></div>`:"")+
+    (vc.W.length?`<div style="margin-top:6px"><b class="w">Advertencias</b><ul class="w">${vc.W.map(x=>`<li>${esc(x)}</li>`).join("")}</ul></div>`:"");
+}
+$("rep").addEventListener("input",liveVal); $("rep").addEventListener("change",liveVal);
+$("rep").addEventListener("submit",ev=>ev.preventDefault());
+$("btnCancel").onclick=async()=>{ const ok=await modal({title:"Descartar cambios",text:"Lo que no haya guardado se perderá.",yes:"Descartar"}); if(!ok) return; const id=EDIT_ID; EDIT_ID=null; EDIT_DOC=null; DETAIL=id||null; setTab("lista"); };
+$("btnSave").onclick=()=>guardar(false); $("btnSaveClose").onclick=()=>guardar(true);
+
+function snapOf(d){ const per={}, veh={}; [...d.personal,d.comandante,d.recibe,...d.vehiculos.map(v=>v.conductor)].filter(Boolean).forEach(id=>per[id]=perName(id,EDIT_DOC)); d.vehiculos.forEach(v=>{ if(v.v) veh[v.v]=vehName(v.v,EDIT_DOC); }); const t=tipoOf(d.tipo,EDIT_DOC); return {per,veh,tipo:t?t.nombre:"",grupo:t?t.grupo:""}; }
+function cambios(a,b){ const out=[]; for(const k of Object.keys(LABELS)){ if(JSON.stringify(a[k]??null)!==JSON.stringify(b[k]??null)) out.push(LABELS[k]); } return out; }
+let saving=false;
+async function guardar(cerrar){
+  if(saving) return;
+  const d=readForm(); const v=validar(d,cerrar);
+  if(v.E.length){ liveVal(); $("valBox").scrollIntoView({behavior:"smooth",block:"center"}); toast(cerrar?"No se puede cerrar: revise la lista de pendientes.":"Corrija los errores marcados."); return; }
+  if(!navigator.onLine){ toast("Sin conexión a internet: el reporte no se puede guardar todavía. No cierre esta pantalla."); return; }
+  saving=true; ["btnSave","btnSaveClose"].forEach(b=>$(b).disabled=true); sync("wait","Guardando…");
+  try{
+    d.snap=snapOf(d);
+    if(!EDIT_ID){
+      const anio=Number(d.aviso.slice(0,4)); const cref=db.collection("contador").doc(String(anio)); const eref=db.collection("emergencias").doc();
+      let numero="";
+      await db.runTransaction(async tx=>{
+        const cs=await tx.get(cref); const n=(cs.exists?Number(cs.data().ultimo)||0:0)+1;
+        numero=anio+"-"+String(n).padStart(4,"0");
+        tx.set(cref,{ultimo:n});
+        const doc={...d,numero,consecutivo:n,anio,estado:cerrar?"cerrada":"abierta",version:1,creadoEn:sts(),creadoPor:UID,actualizadoEn:sts(),actualizadoPor:UID};
+        if(cerrar){ doc.cerradoEn=sts(); doc.cerradoPor=UID; }
+        tx.set(eref,doc); audDoc(tx,eref.id,numero,"Creación",cerrar?"Creado y cerrado":"Creado como abierto");
+      });
+      toast("Reporte "+numero+" guardado."); DETAIL=eref.id;
+    } else {
+      const ref=db.collection("emergencias").doc(EDIT_ID); let num="";
+      await db.runTransaction(async tx=>{
+        const s=await tx.get(ref); if(!s.exists) throw {code:"conflict",message:"El reporte ya no existe."};
+        const cur=s.data(); num=cur.numero;
+        if(cur.version!==EDIT_BASE) throw {code:"conflict",message:"Otro usuario guardó cambios en este reporte mientras usted editaba. Copie sus cambios, cancele y vuelva a abrirlo."};
+        if(cur.estado==="anulada") throw {code:"conflict",message:"El reporte fue anulado; no se puede editar."};
+        const ch=cambios(cur,d);
+        const up={...d,version:cur.version+1,actualizadoEn:sts(),actualizadoPor:UID};
+        if(cerrar&&cur.estado==="abierta"){ up.estado="cerrada"; up.cerradoEn=sts(); up.cerradoPor=UID; }
+        tx.update(ref,up);
+        audDoc(tx,EDIT_ID,cur.numero,"Edición",ch.length?"Campos: "+ch.join(", "):"Sin cambios de contenido");
+        if(d.aviso.slice(0,4)!==String(cur.anio)) audDoc(tx,EDIT_ID,cur.numero,"Advertencia","El año del aviso no coincide con el año del consecutivo");
+        if(up.estado==="cerrada") audDoc(tx,EDIT_ID,cur.numero,"Cierre","");
+      });
+      toast("Reporte "+num+" actualizado."); DETAIL=EDIT_ID;
+    }
+    EDIT_ID=null; EDIT_DOC=null; setTab("lista");
+  }catch(err){ toast(errMsg(err)); }
+  finally{ saving=false; ["btnSave","btnSaveClose"].forEach(b=>$(b).disabled=false); sync("ok","Sincronizado"); }
+}
+
+/* ---------- resumen ---------- */
+function renderResumen(){
+  const years=[...new Set(EMERG.map(e=>e.anio||Number((e.aviso||"").slice(0,4))).filter(Boolean))].sort((a,b)=>b-a);
+  const ys=$("rAnio"); const cy=new Date().getFullYear(); if(!years.includes(cy)) years.unshift(cy);
+  const prev=ys.value; ys.innerHTML=years.map(y=>`<option>${y}</option>`).join(""); ys.value=prev&&years.includes(+prev)?prev:String(years[0]);
+  if($("rMes").options.length<2) $("rMes").insertAdjacentHTML("beforeend",MESES.map((m,i)=>`<option value="${String(i+1).padStart(2,"0")}">${m}</option>`).join(""));
+  const Y=ys.value, M=$("rMes").value;
+  const inP=EMERG.filter(e=>(e.aviso||"").slice(0,4)===Y&&(!M||(e.aviso||"").slice(5,7)===M));
+  const val=inP.filter(e=>e.estado!=="anulada"), an=inP.length-val.length;
+  const body=$("resBody");
+  if(!inP.length){ body.innerHTML=`<div class="card empty"><b>Sin emergencias en ${M?MESES[+M-1]+" de ":""}${Y}</b>Los indicadores aparecen cuando hay reportes registrados en el período.</div>`; return; }
+  const resp=val.map(e=>tiempos(e).respuesta).filter(x=>x!=null&&x>=0).sort((a,b)=>a-b);
+  const avg=resp.length?Math.round(resp.reduce((s,x)=>s+x,0)/resp.length):null;
+  const med=resp.length?(resp.length%2?resp[(resp.length-1)/2]:Math.round((resp[resp.length/2-1]+resp[resp.length/2])/2)):null;
+  const kp=(l,v,s)=>`<div class="kpi"><span>${l}</span><b>${v}</b>${s?`<small>${s}</small>`:""}</div>`;
+  const byT={}; val.forEach(e=>{ const t=tipoOf(e.tipo,e)||{nombre:"Sin tipo",grupo:"—"}; const k=t.grupo+"|"+t.nombre; byT[k]=(byT[k]||0)+1; });
+  const rowsT=Object.entries(byT).sort((a,b)=>b[1]-a[1]); const maxT=Math.max(...rowsT.map(r=>r[1]),1);
+  const byG={}; val.forEach(e=>{ const g=(tipoOf(e.tipo,e)||{grupo:"—"}).grupo; byG[g]=(byG[g]||0)+1; });
+  const aT={}; AFECT.forEach(([k])=>aT[k]=0); let agua=0, esp=0, km=0; val.forEach(e=>{ AFECT.forEach(([k])=>aT[k]+=Number((e.afect||{})[k])||0); agua+=Number(e.agua)||0; esp+=Number(e.espuma)||0; (e.vehiculos||[]).forEach(v=>{ if(v.kmIni!=null&&v.kmFin!=null&&v.kmFin>=v.kmIni) km+=v.kmFin-v.kmIni; }); });
+  let mesHTML="";
+  if(!M){ const bm=Array(12).fill(0); val.forEach(e=>bm[+(e.aviso.slice(5,7))-1]++); const mx=Math.max(1,...bm);
+    mesHTML=`<div class="card"><h3>Por mes</h3><div class="scroll"><table class="t"><tbody>${bm.map((c,i)=>`<tr><td>${MESES[i]}</td><td class="r mono" style="width:60px">${c}</td><td style="width:55%"><div class="hbar"><i style="width:${c/mx*100}%"></i></div></td></tr>`).join("")}</tbody></table></div></div>`; }
+  const bySec={}; val.forEach(e=>{ const s=e.sector||"(sin barrio/vereda)"; bySec[s]=(bySec[s]||0)+1; }); const secs=Object.entries(bySec).sort((a,b)=>b[1]-a[1]).slice(0,10);
+  body.innerHTML=`<div class="kpis">${kp("Emergencias atendidas",val.length,`${val.filter(e=>e.estado==="cerrada").length} cerradas · ${val.filter(e=>e.estado==="abierta").length} abiertas`)}${kp("Anuladas",an,"excluidas de los totales")}${kp("Respuesta promedio",avg==null?"—":avg+" min",resp.length+" con hora de llegada")}${kp("Respuesta mediana",med==null?"—":med+" min","")}${kp("Km recorridos",km.toLocaleString("es-CO"),"vehículos con km completo")}</div>
+  <div class="two">
+    <div class="card"><h3>Por tipo de emergencia</h3><div class="scroll"><table class="t"><thead><tr><th>Grupo</th><th>Tipo</th><th class="r">N°</th><th class="r">%</th><th></th></tr></thead><tbody>${rowsT.map(([k,c])=>{ const [g,n]=k.split("|"); return `<tr><td>${esc(g)}</td><td>${esc(n)}</td><td class="r mono">${c}</td><td class="r mono">${(c/val.length*100).toFixed(1)}</td><td style="width:30%"><div class="hbar"><i style="width:${c/maxT*100}%"></i></div></td></tr>`; }).join("")}</tbody><tfoot><tr><td colspan="2"><b>Total</b></td><td class="r mono"><b>${val.length}</b></td><td class="r mono">${val.length?"100.0":"—"}</td><td></td></tr></tfoot></table></div>
+    <p class="note">Por grupo: ${Object.entries(byG).map(([g,c])=>esc(g)+" "+c).join(" · ")}</p></div>
+    <div class="stack">${mesHTML}
+      <div class="card"><h3>Afectación y consumos</h3><dl class="kv">${AFECT.map(([k,l])=>`<div><dt>${l}</dt><dd class="mono">${aT[k].toLocaleString("es-CO")}</dd></div>`).join("")}<div><dt>Agua (gal)</dt><dd class="mono">${agua.toLocaleString("es-CO")}</dd></div><div><dt>Espuma (gal)</dt><dd class="mono">${esp.toLocaleString("es-CO")}</dd></div></dl></div>
+      <div class="card"><h3>Barrios y veredas con más servicios</h3><table class="t"><tbody>${secs.map(([s,c])=>`<tr><td>${esc(s)}</td><td class="r mono">${c}</td></tr>`).join("")}</tbody></table></div>
+    </div>
+  </div>
+  <p class="note">Respuesta = llegada − aviso. Los reportes con horas vacías o negativas no entran en el promedio.</p>`;
+}
+$("rAnio").addEventListener("change",renderResumen); $("rMes").addEventListener("change",renderResumen);
+
+/* ---------- catálogos ---------- */
+const CATS={
+  personal:{t:"Personal",n:"Bomberos y personal que participa en las emergencias. No se borran: se desactivan, para conservar la trazabilidad. Datos personales tratados conforme a la Ley 1581 de 2012.",cols:[["documento","Documento"],["nombre","Nombre completo"],["cargo","Cargo / rango"]],key:"documento",idp:"p_"},
+  vehiculos:{t:"Vehículos",n:"Máquinas y vehículos de la institución.",cols:[["codigo","Código / nombre"],["tipo","Tipo"],["placa","Placa"]],key:"codigo",idp:"v_"},
+  tipos:{t:"Tipos de emergencia",n:"Tipología sugerida, ajustable. El código no se puede cambiar una vez creado, porque los reportes lo referencian.",cols:[["codigo","Código"],["nombre","Nombre"],["grupo","Grupo"]],key:"codigo",fixed:"codigo"},
+  sectores:{t:"Barrios y veredas",n:"Lista de apoyo para el campo «Barrio / vereda». El formulario también acepta texto libre.",cols:[["nombre","Nombre"],["zona","Zona (Urbana/Rural)"]],key:"nombre",idp:"s_"}
+};
+function renderCat(){
+  const b=$("catBody"); const ro=!isAdmin(); const g=CFG.general||{};
+  let h=`<div class="card"><h2 class="sec">Datos generales</h2>${ro?'<p class="note">Solo un administrador puede modificar los catálogos.</p>':''}<div class="g" style="margin-top:8px">
+    <label class="f w2"><span>Institución</span><input id="g_inst" value="${esc(g.institucion||"")}" ${ro?"disabled":""}></label>
+    <label class="f"><span>Municipio por defecto</span><input id="g_mun" value="${esc(g.municipio||"")}" ${ro?"disabled":""}></label>
+    <label class="f"><span>Departamento</span><input id="g_dep" value="${esc(g.departamento||"")}" ${ro?"disabled":""}></label></div>
+    ${ro?"":'<div class="bar" style="justify-content:flex-end;margin-top:10px"><button class="btn primary" id="g_save">Guardar datos generales</button></div>'}</div>`;
+  for(const [k,c] of Object.entries(CATS)){
+    const rows=CAT_DRAFT[k]||items(k).map(x=>({...x,_old:true}));
+    h+=`<div class="card"><div class="bar" style="margin-bottom:6px"><h2 class="sec grow" style="margin:0">${c.t} <span class="note mono">(${items(k).filter(x=>x.activo!==false).length} activos)</span></h2>${k==="personal"&&!ro?'<label class="btn">Importar desde Excel<input type="file" id="impFile" accept=".xlsx,.xls,.csv" hidden></label>':''}</div><p class="note">${c.n}</p>
+    ${k==="personal"&&IMPORT?importHTML():""}
+    <div class="scroll" style="margin-top:8px"><table class="t cat-t"><thead><tr>${c.cols.map(x=>`<th>${x[1]}</th>`).join("")}<th>Activo</th></tr></thead><tbody>${rows.length?rows.map((r,i)=>`<tr data-c="${k}" data-i="${i}">${c.cols.map(([f])=>`<td><input data-f="${f}" value="${esc(r[f]||"")}" ${ro||(c.fixed===f&&r._old)?"disabled":""}></td>`).join("")}<td><input type="checkbox" data-f="activo" ${r.activo!==false?"checked":""} ${ro?"disabled":""}></td></tr>`).join(""):`<tr><td colspan="${c.cols.length+1}" class="note">Sin registros.</td></tr>`}</tbody></table></div>
+    ${ro?"":`<div class="bar" style="margin-top:10px"><button class="btn" data-add="${k}">Agregar fila</button><span class="grow"></span>${CAT_DRAFT[k]?`<button class="btn ghost" data-undo="${k}">Descartar</button>`:""}<button class="btn primary" data-save="${k}" ${CAT_DRAFT[k]?"":"disabled"}>Guardar ${c.t.toLowerCase()}</button></div>`}</div>`;
+  }
+  b.innerHTML=h;
+  const f=$("impFile"); if(f) f.onchange=leerImport;
+}
+function importHTML(){
+  const n=IMPORT.filter(r=>r.estado==="nuevo").length;
+  return `<div class="val" style="margin-top:10px"><b>Vista previa de la importación</b> <span class="note">(${IMPORT.length} personas en el archivo: ${n} nuevas)</span>
+  <div class="scroll" style="margin-top:6px"><table class="t"><thead><tr><th>Fila</th><th>Documento</th><th>Nombre</th><th>Resultado</th></tr></thead><tbody>${IMPORT.map(r=>`<tr><td class="mono">${esc(r.filas.join(", "))}</td><td class="mono">${esc(r.documento)}</td><td>${esc(r.nombre)}${r.original!==r.nombre?`<div class="note" style="margin:0">En el archivo: ${esc(r.original)}</div>`:""}</td><td class="${r.estado==="nuevo"?"imp-new":r.estado==="existe"?"imp-old":"imp-dup"}">${esc(r.msg)}</td></tr>`).join("")}</tbody></table></div>
+  <div class="bar" style="margin-top:8px;justify-content:flex-end"><button class="btn ghost" id="impNo">Cancelar</button><button class="btn primary" id="impYes" ${n?"":"disabled"}>Importar ${n} persona(s) nueva(s)</button></div></div>`;
+}
+async function leerImport(ev){
+  const file=ev.target.files[0]; if(!file) return;
+  try{
+    const wb=XLSX.read(await file.arrayBuffer(),{type:"array"}); const ws=wb.Sheets[wb.SheetNames[0]];
+    const rows=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,defval:""});
+    let iN=-1,iD=-1,iC=-1,start=0;
+    const hdr=(rows[0]||[]).map(x=>String(x).toLowerCase());
+    hdr.forEach((h,i)=>{ if(/nombre/.test(h)) iN=i; else if(/doc|c[eé]dula|identif/.test(h)) iD=i; else if(/cargo|rango/.test(h)) iC=i; });
+    if(iN>=0&&iD>=0) start=1;
+    const map=new Map(); const out=[];
+    rows.slice(start).forEach((r,k)=>{
+      const fila=k+start+1; let nombre="",doc="",cargo="";
+      if(start){ nombre=r[iN]; doc=r[iD]; cargo=iC>=0?r[iC]:""; }
+      else { r.forEach(c=>{ const s=String(c).trim(); if(!s) return; const dg=s.replace(/[.\s,-]/g,""); if(/^\d{5,12}$/.test(dg)&&!doc) doc=dg; else if(!nombre) nombre=s; }); }
+      doc=String(doc||"").replace(/[.\s,-]/g,""); const orig=String(nombre||"").replace(/\s+/g," ").trim(); nombre=titulo(orig);
+      if(!doc&&!nombre) return;
+      if(!doc||!nombre){ out.push({filas:[fila],documento:doc,nombre,original:orig,cargo,estado:"error",msg:"Fila incompleta: no se importa"}); return; }
+      if(map.has(doc)){ const p=map.get(doc); p.filas.push(fila); if(nombre.length>p.nombre.length){ p.nombre=nombre; p.original=orig; } if(p.estado==="nuevo"){ p.msg="Documento repetido en el archivo: se importa una vez con el nombre más completo"; p.dup=true; } return; }
+      const ex=PERSONAL.find(p=>String(p.documento)===doc);
+      const o={filas:[fila],documento:doc,nombre,original:orig,cargo:String(cargo||"").trim(),estado:ex?"existe":"nuevo",msg:ex?`Ya existe como «${ex.nombre}»: no se modifica`:"Nuevo"};
+      map.set(doc,o); out.push(o);
+    });
+    IMPORT=out; renderCat();
+  }catch(e){ toast("No se pudo leer el archivo: "+(e.message||e)); }
+}
+$("catBody").addEventListener("input",ev=>{ const tr=ev.target.closest("tr[data-c]"); if(!tr) return; const k=tr.dataset.c; if(!CAT_DRAFT[k]) CAT_DRAFT[k]=items(k).map(x=>({...x,_old:true})); const r=CAT_DRAFT[k][+tr.dataset.i]; const f=ev.target.dataset.f; r[f]=f==="activo"?ev.target.checked:ev.target.value; const sb=document.querySelector(`[data-save="${k}"]`); if(sb) sb.disabled=false; });
+$("catBody").addEventListener("click",async ev=>{
+  const t=ev.target;
+  if(t.id==="impNo"){ IMPORT=null; renderCat(); return; }
+  if(t.id==="impYes"){ const nuevos=IMPORT.filter(r=>r.estado==="nuevo"); t.disabled=true;
+    try{ for(let i=0;i<nuevos.length;i+=400){ const b=db.batch(); nuevos.slice(i,i+400).forEach(r=>b.set(db.collection("personal").doc(uid("p_")),{documento:r.documento,nombre:r.nombre,cargo:r.cargo||"",activo:true,creadoEn:sts(),actualizadoPor:UID})); b.set(db.collection("auditoria_admin").doc(),{uid:UID,ts:sts(),accion:"Importación de personal",detalle:`${nuevos.length} personas desde ${$("impFile")&&$("impFile").files[0]?$("impFile").files[0].name:"Excel"}`}); await b.commit(); }
+      toast(nuevos.length+" persona(s) importada(s)."); IMPORT=null; renderCat(); }catch(e){ toast(errMsg(e)); t.disabled=false; } return; }
+  if(t.id==="g_save"){ try{ await db.collection("cfg").doc("general").set({institucion:$("g_inst").value.trim(),municipio:$("g_mun").value.trim(),departamento:$("g_dep").value.trim(),actualizadoEn:sts(),actualizadoPor:UID}); toast("Datos generales guardados."); }catch(e){ toast(errMsg(e)); } return; }
+  if(t.dataset.add){ const k=t.dataset.add; if(!CAT_DRAFT[k]) CAT_DRAFT[k]=items(k).map(x=>({...x,_old:true})); CAT_DRAFT[k].push({activo:true}); renderCat(); return; }
+  if(t.dataset.undo){ delete CAT_DRAFT[t.dataset.undo]; renderCat(); return; }
+  if(t.dataset.save){
+    const k=t.dataset.save, c=CATS[k];
+    const rows=(CAT_DRAFT[k]||[]).map(r=>{ const o={}; c.cols.forEach(([f])=>o[f]=(r[f]||"").trim()); o.activo=r.activo!==false; if(c.idp) o.id=r.id||uid(c.idp); if(k==="personal"){ o.nombre=titulo(o.nombre); o.documento=o.documento.replace(/[.\s,-]/g,""); } return o; }).filter(r=>c.cols.some(([f])=>r[f]));
+    const miss=rows.filter(r=>!r[c.key]); if(miss.length){ toast(`Hay filas sin «${c.cols.find(x=>x[0]===c.key)[1]}».`); return; }
+    const keys=rows.map(r=>r[c.key].toLowerCase()); const dup=keys.filter((x,i)=>keys.indexOf(x)!==i); if(dup.length){ toast("Valores repetidos: "+[...new Set(dup)].join(", ")); return; }
+    if(k==="tipos"&&rows.some(r=>!r.grupo)){ toast("Cada tipo necesita un grupo."); return; }
+    const removed=items(k).filter(o=>!rows.some(r=>(c.idp?r.id===o.id:r.codigo===o.codigo))); if(removed.length){ toast("No se pueden quitar registros existentes; desactívelos."); return; }
+    try{
+      const b=db.batch();
+      if(k==="personal"){ rows.forEach(r=>{ const old=PERSONAL.find(p=>p.id===r.id); if(!old||old.nombre!==r.nombre||old.documento!==r.documento||(old.cargo||"")!==r.cargo||(old.activo!==false)!==r.activo){ const {id,...data}=r; b.set(db.collection("personal").doc(id),{...data,actualizadoEn:sts(),actualizadoPor:UID},{merge:true}); } }); }
+      else b.set(db.collection("cfg").doc(k),{items:rows,actualizadoEn:sts(),actualizadoPor:UID});
+      b.set(db.collection("auditoria_admin").doc(),{uid:UID,ts:sts(),accion:"Catálogo",detalle:"Actualización de "+c.t.toLowerCase()});
+      await b.commit(); delete CAT_DRAFT[k]; toast(c.t+" guardado."); renderCat();
+    }catch(e){ toast(errMsg(e)); }
+  }
+});
+
+/* ---------- usuarios ---------- */
+function renderUsers(){
+  if(!isAdmin()){ $("usersBody").innerHTML=""; return; }
+  $("usersBody").innerHTML=`<div class="card"><h2 class="sec">Crear usuario</h2>
+    <p class="note">El usuario entra con el correo y la contraseña temporal que usted le entregue. Después puede cambiarla con «¿Olvidó su contraseña?» en la pantalla de ingreso.</p>
+    <div class="g" style="margin-top:8px">
+      <label class="f w2"><span>Nombre completo</span><input id="nuNombre"></label>
+      <label class="f w2"><span>Correo</span><input type="email" id="nuEmail"></label>
+      <label class="f"><span>Rol</span><select id="nuRol"><option value="operador">Operador</option><option value="consulta">Consulta</option><option value="admin">Administrador</option></select></label>
+      <label class="f"><span>Contraseña temporal</span><input id="nuPass" value="${esc(tempPass())}"></label>
+    </div>
+    <div class="err" id="nuErr" style="margin-top:6px"></div>
+    <div class="bar" style="justify-content:flex-end"><button class="btn primary" id="nuBtn">Crear usuario</button></div></div>
+  <div class="card"><h2 class="sec">Usuarios</h2>
+    <p class="note"><b>Administrador:</b> catálogos, usuarios, editar cerrados, reabrir y anular. <b>Operador:</b> crea, edita y cierra reportes abiertos. <b>Consulta:</b> solo ve. Los usuarios no se borran: se desactivan.</p>
+    <div class="scroll" style="margin-top:8px"><table class="t cat-t"><thead><tr><th>Nombre</th><th>Correo</th><th>Rol</th><th>Activo</th><th></th></tr></thead><tbody>${USERS.map(u=>`<tr data-u="${esc(u.id)}"><td><input data-f="nombre" value="${esc(u.nombre||"")}"></td><td>${esc(u.email||"")}</td><td><select data-f="rol" ${u.id===UID?"disabled":""}>${["admin","operador","consulta"].map(r=>`<option value="${r}" ${u.rol===r?"selected":""}>${ROL_LBL[r]}</option>`).join("")}</select></td><td><input type="checkbox" data-f="activo" ${u.activo?"checked":""} ${u.id===UID?"disabled":""}></td><td style="white-space:nowrap"><button class="btn" data-us="save">Guardar</button> <button class="btn ghost" data-us="reset">Enviar enlace de contraseña</button></td></tr>`).join("")}</tbody></table></div></div>`;
+}
+function tempPass(){ const c="ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789"; let s=""; const a=new Uint32Array(10); crypto.getRandomValues(a); a.forEach(x=>s+=c[x%c.length]); return s; }
+$("usersBody").addEventListener("click",async ev=>{
+  const t=ev.target;
+  if(t.id==="nuBtn"){
+    const nombre=titulo($("nuNombre").value), email=$("nuEmail").value.trim().toLowerCase(), rol=$("nuRol").value, pass=$("nuPass").value;
+    if(nombre.length<5||!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ $("nuErr").textContent="Escriba el nombre completo y un correo válido."; return; }
+    if(pass.length<6){ $("nuErr").textContent="La contraseña temporal debe tener al menos 6 caracteres."; return; }
+    t.disabled=true; $("nuErr").textContent="";
+    try{
+      if(!secApp) secApp=firebase.initializeApp(FIREBASE_CONFIG,"secundaria");
+      const cred=await secApp.auth().createUserWithEmailAndPassword(email,pass); const nuid=cred.user.uid; await secApp.auth().signOut();
+      const b=db.batch();
+      b.set(db.collection("usuarios").doc(nuid),{email,nombre,rol,activo:true,creadoEn:sts(),creadoPor:UID});
+      b.set(db.collection("auditoria_admin").doc(),{uid:UID,ts:sts(),accion:"Usuario creado",detalle:`${nombre} (${email}) como ${ROL_LBL[rol]}`});
+      await b.commit();
+      await modal({title:"Usuario creado",text:`Entréguele a ${nombre} estos datos por un medio privado:\nCorreo: ${email}\nContraseña temporal: ${pass}`,yes:"Listo"});
+      renderUsers();
+    }catch(e){ $("nuErr").textContent=errMsg(e)+(e.code==="auth/email-already-in-use"?" Si la cuenta quedó a medio crear, elimínela en la consola de Firebase (Authentication → Usuarios) y vuelva a crearla aquí.":""); }
+    finally{ t.disabled=false; }
+    return;
+  }
+  const tr=t.closest("tr[data-u]"); if(!tr||!t.dataset.us) return; const u=USERS.find(x=>x.id===tr.dataset.u); if(!u) return;
+  if(t.dataset.us==="reset"){ try{ await auth.sendPasswordResetEmail(u.email); toast("Enlace enviado a "+u.email+"."); }catch(e){ toast(errMsg(e)); } return; }
+  if(t.dataset.us==="save"){
+    const nombre=titulo(tr.querySelector('[data-f="nombre"]').value), rol=tr.querySelector('[data-f="rol"]').value, activo=tr.querySelector('[data-f="activo"]').checked;
+    try{ const b=db.batch(); b.update(db.collection("usuarios").doc(u.id),{nombre,rol,activo}); b.set(db.collection("auditoria_admin").doc(),{uid:UID,ts:sts(),accion:"Usuario modificado",detalle:`${u.email}: rol ${ROL_LBL[rol]}, ${activo?"activo":"inactivo"}`}); await b.commit(); toast("Usuario actualizado."); }catch(e){ toast(errMsg(e)); }
+  }
+});
+
+/* ---------- historial ---------- */
+function renderHist(){
+  const q=$("hq").value.trim().toLowerCase();
+  const L=AUD.filter(r=>!q||((r.numero||"")+" "+r.accion+" "+(r.detalle||"")+" "+(r.nombre||"")).toLowerCase().includes(q)).slice(0,500);
+  $("histWrap").innerHTML=L.length?`<table class="t"><thead><tr><th>Fecha (servidor)</th><th>Reporte</th><th>Acción</th><th>Usuario</th><th>Detalle</th></tr></thead><tbody>${L.map(r=>`<tr><td class="mono">${esc(fmtTS(r.ts))}</td><td class="mono">${esc(r.numero||"")}</td><td>${esc(r.accion)}</td><td>${esc(r.nombre||"")}</td><td>${esc(r.detalle||"")}</td></tr>`).join("")}</tbody></table>`:'<div class="empty">Sin movimientos registrados.</div>';
+}
+$("hq").addEventListener("input",renderHist);
+
+/* ---------- Excel ---------- */
+$("btnXls").onclick=()=>{
+  if(typeof XLSX==="undefined"){ toast("No cargó la librería de Excel. Recargue la página."); return; }
+  const L=filtrados().slice().sort((a,b)=>(a.aviso||"").localeCompare(b.aviso||""));
+  if(!L.length){ toast("No hay reportes con los filtros actuales."); return; }
+  const wb=XLSX.utils.book_new(); const enc=XLSX.utils.encode_cell;
+  const mk=(rows)=>{ const ws={}; let maxC=0; rows.forEach((r,R)=>{ r.forEach((v,C)=>{ if(v==null||v==="") return; maxC=Math.max(maxC,C); ws[enc({r:R,c:C})]=(typeof v==="object")?v:(typeof v==="number"?{t:"n",v}:{t:"s",v:String(v)}); }); }); ws["!ref"]=XLSX.utils.encode_range({s:{r:0,c:0},e:{r:rows.length-1,c:maxC}}); return ws; };
+  const dt=s=>{ const v=xlSerial(s); return v==null?null:{t:"n",v,z:"yyyy-mm-dd hh:mm"}; };
+  const H=["Número","Estado","Fecha aviso","Medio","Código tipo","Tipo","Grupo","Detalle","Zona","Barrio/vereda","Dirección","Municipio","Salida","Llegada","Controlada","Regreso","Min despacho","Min respuesta","Min atención","Min total","Comandante","N° personal","Vehículos","Lesionados","Fallecidos","Rescatados","Evacuados","Familias","Viviendas","Área m²","Agua gal","Espuma gal","Entidades apoyo","Situación encontrada","Acciones","Observaciones","Motivo anulación","Creado","Última modificación","Versión"];
+  const rows=[H];
+  L.forEach((e,i)=>{ const r=i+2, t=tipoOf(e.tipo,e)||{}, a=e.afect||{};
+    const f=(x,y)=>({t:"n",f:`IF(AND(ISNUMBER(${y}${r}),ISNUMBER(${x}${r})),ROUND((${y}${r}-${x}${r})*1440,0),"")`,z:"0"});
+    rows.push([e.numero,EST_LBL[e.estado],dt(e.aviso),e.medio,e.tipo,t.nombre,t.grupo,e.tipoDetalle,e.zona,e.sector,e.direccion,e.municipio,dt(e.salida),dt(e.llegada),dt(e.controlado),dt(e.fin),
+      f("C","M"),f("C","N"),f("N","P"),f("C","P"),e.comandante?perName(e.comandante,e):"",(e.personal||[]).length,(e.vehiculos||[]).filter(v=>v.v).map(v=>vehName(v.v,e)).join(", "),
+      a.les,a.fal,a.res,a.eva,a.fam,a.viv,a.area,e.agua,e.espuma,[...(e.entidades||[]),e.entidadOtra].filter(Boolean).join(", "),e.descripcion,e.acciones,e.observaciones,e.anulacion?e.anulacion.motivo:"",fmtTS(e.creadoEn),fmtTS(e.actualizadoEn),e.version||1]); });
+  const ws1=mk(rows); ws1["!cols"]=H.map((h,i)=>({wch:[2,12,13,14,15].includes(i)?17:Math.min(28,Math.max(10,h.length+2))})); ws1["!autofilter"]={ref:"A1:"+enc({r:rows.length-1,c:H.length-1})};
+  XLSX.utils.book_append_sheet(wb,ws1,"Emergencias");
+  const pr=[["Número","Documento","Nombre","Rol"]]; L.forEach(e=>{ if(e.comandante) pr.push([e.numero,perDoc(e.comandante),perName(e.comandante,e),"Comandante"]); (e.personal||[]).forEach(p=>pr.push([e.numero,perDoc(p),perName(p,e),"Asistente"])); (e.vehiculos||[]).forEach(v=>{ if(v.conductor) pr.push([e.numero,perDoc(v.conductor),perName(v.conductor,e),"Conductor "+vehName(v.v,e)]); }); });
+  XLSX.utils.book_append_sheet(wb,mk(pr),"Personal");
+  const vr=[["Número","Vehículo","Conductor","Km inicial","Km final","Km recorridos"]]; L.forEach(e=>(e.vehiculos||[]).filter(v=>v.v).forEach(v=>{ const r=vr.length+1; vr.push([e.numero,vehName(v.v,e),v.conductor?perName(v.conductor,e):"",v.kmIni,v.kmFin,{t:"n",f:`IF(AND(ISNUMBER(D${r}),ISNUMBER(E${r})),E${r}-D${r},"")`}]); }));
+  XLSX.utils.book_append_sheet(wb,mk(vr),"Vehiculos");
+  const codes=[...new Set(L.map(e=>e.tipo).filter(Boolean))].sort(); const n=rows.length;
+  const rs=[["Código","Tipo","Grupo","Atendidas (sin anuladas)","Respuesta promedio (min)"]];
+  codes.forEach(c=>{ const r=rs.length+1, t=tipoOf(c)||{}; rs.push([c,t.nombre||c,t.grupo||"",{t:"n",f:`COUNTIFS(Emergencias!$E$2:$E$${n},A${r},Emergencias!$B$2:$B$${n},"<>Anulada")`},{t:"n",f:`IFERROR(ROUND(AVERAGEIFS(Emergencias!$R$2:$R$${n},Emergencias!$E$2:$E$${n},A${r},Emergencias!$B$2:$B$${n},"<>Anulada"),0),"")`}]); });
+  const last=rs.length; rs.push(["","Total atendidas","",{t:"n",f:`SUM(D2:D${last})`},""]);
+  rs.push(["","Anuladas","",{t:"n",f:`COUNTIF(Emergencias!$B$2:$B$${n},"Anulada")`},""]);
+  rs.push(["","Sin tipo","",{t:"n",f:`COUNTIFS(Emergencias!$E$2:$E$${n},"",Emergencias!$B$2:$B$${n},"<>Anulada")`},""]);
+  rs.push(["","Registros en hoja Emergencias","",{t:"n",f:`COUNTA(Emergencias!$A$2:$A$${n})`},""]);
+  rs.push(["","Control: total + anuladas + sin tipo = registros","",{t:"s",f:`IF(D${last+1}+D${last+2}+D${last+3}=D${last+4},"OK","DIFERENCIA")`},""]);
+  XLSX.utils.book_append_sheet(wb,mk(rs),"Resumen_tipo");
+  const fl=[["Parámetro","Valor"],["Institución",(CFG.general||{}).institucion||""],["Generado",fmtTS(new Date())],["Generado por",(MYDOC&&MYDOC.nombre)||""],["Filtro búsqueda",$("q").value],["Filtro estado",$("fEstado").value||"Todos"],["Filtro tipo",$("fTipo").selectedOptions[0]?$("fTipo").selectedOptions[0].text:"Todos"],["Desde",$("fDesde").value],["Hasta",$("fHasta").value],["Registros exportados",L.length],["Nota","Tiempos en minutos calculados con fórmula a partir de las fechas. Los anulados se incluyen en la hoja Emergencias y se excluyen del resumen."]];
+  XLSX.utils.book_append_sheet(wb,mk(fl),"Parametros");
+  XLSX.writeFile(wb,`Emergencias_San_Antonio_${new Date().toISOString().slice(0,10)}.xlsx`);
+  toast("Excel descargado.");
+};
+
+boot();
+})();
+</script>
+</body>
+</html>
